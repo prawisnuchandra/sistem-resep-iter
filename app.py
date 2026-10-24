@@ -71,10 +71,8 @@ def simpan_data(data_dict):
                 rm_record = str(rec.get("No. RM", rec.get("RM", ""))).strip()
                 if rm_record == str(data_dict["No. RM"]).strip() and \
                    str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
-                    try:
-                        sheet.delete_rows(i + 2)
-                    except AttributeError:
-                        sheet.delete_row(i + 2)
+                    try: sheet.delete_rows(i + 2)
+                    except AttributeError: sheet.delete_row(i + 2)
                     break 
         except: pass
         sheet.append_row(row_data)
@@ -193,16 +191,39 @@ with tab1:
         st.success("✅ Sukses Disimpan! Data ganda otomatis ditimpa. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Buka resep di web iHospital, tekan `Ctrl+A` lalu `Ctrl+C`. Setelah itu, paste (`Ctrl+V`) teksnya di kotak bawah ini.")
-    teks_input_user = st.text_area("📋 Paste Teks Halaman Resep di Sini (Tekan Ctrl+Enter untuk memproses):", height=150, placeholder="Tekan Ctrl+V di sini...")
+    st.info("💡 **Petunjuk:** Buka resep di web iHospital, tekan `Ctrl+A` lalu `Ctrl+C`. Setelah itu, paste (`Ctrl+V`) teksnya di kotak bawah ini lalu tekan tombol Proses.")
     
-    if teks_input_user.strip():
-        if 'hasil_ekstrak_teks' not in st.session_state or st.session_state.get('last_teks') != teks_input_user:
-            with st.spinner("⏳ Memproses data resep..."):
-                time.sleep(0.5) # Memberi efek loading visual
-                st.session_state['hasil_ekstrak_teks'] = parse_teks_resep(teks_input_user)
-                st.session_state['last_teks'] = teks_input_user
-        
+    # Membungkus Text Area dalam Form agar teks 'Press Ctrl+Enter' tidak muncul
+    with st.form("form_paste_teks"):
+        teks_input_user = st.text_area("📋 Paste Teks Halaman Resep di Sini:", height=150, placeholder="Tekan Ctrl+V di sini...")
+        btn_proses = st.form_submit_button("🚀 Proses Data Resep")
+    
+    # Logika Loading 0 - 100% saat tombol diklik
+    if btn_proses:
+        if teks_input_user.strip():
+            progress_text = "Memulai pemindaian... 0%"
+            my_bar = st.progress(0, text=progress_text)
+            
+            for percent_complete in range(100):
+                time.sleep(0.015)  # Animasi loading (1,5 detik)
+                if percent_complete == 30: progress_text = f"Menganalisis Identitas Pasien... {percent_complete}%"
+                elif percent_complete == 60: progress_text = f"Mengekstrak Rincian Obat... {percent_complete}%"
+                elif percent_complete == 90: progress_text = f"Memvalidasi Data... {percent_complete}%"
+                elif percent_complete == 99: progress_text = f"Selesai! {percent_complete}%"
+                
+                my_bar.progress(percent_complete + 1, text=progress_text)
+            
+            time.sleep(0.3)
+            my_bar.empty() # Menghapus baris loading setelah selesai
+            
+            # Simpan hasil ke Session State
+            st.session_state['hasil_ekstrak_teks'] = parse_teks_resep(teks_input_user)
+            st.session_state['list_obat_teks'] = list(st.session_state['hasil_ekstrak_teks']["list_obat"])
+        else:
+            st.warning("⚠️ Kotak teks masih kosong, silakan paste teks resep terlebih dahulu!")
+
+    # Tampilkan UI jika data berhasil diproses
+    if 'hasil_ekstrak_teks' in st.session_state and st.session_state.get('list_obat_teks') is not None:
         hasil = st.session_state['hasil_ekstrak_teks']
 
         st.subheader("👤 Identitas Pasien")
@@ -222,10 +243,7 @@ with tab1:
         st.subheader("💊 Rincian Obat")
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
-        if 'list_obat_teks' not in st.session_state or st.session_state.get('last_teks_obat') != teks_input_user:
-            st.session_state['list_obat_teks'] = list(hasil["list_obat"])
-            st.session_state['last_teks_obat'] = teks_input_user
-
+        
         indices_to_remove = []
         for idx, item in enumerate(st.session_state['list_obat_teks']):
             col_buble, col_aksi = st.columns([7, 3])
@@ -275,10 +293,16 @@ with tab2:
     
     if file_upload:
         if 'hasil_ekstrak_pdf' not in st.session_state or st.session_state.get('last_file_pdf') != file_upload.name:
-            with st.spinner("⏳ Mengekstrak teks dari PDF..."):
-                time.sleep(0.5)
-                st.session_state['hasil_ekstrak_pdf'] = ekstrak_data_pdf(file_upload)
-                st.session_state['last_file_pdf'] = file_upload.name
+            progress_text_pdf = "Membaca file PDF... 0%"
+            my_bar2 = st.progress(0, text=progress_text_pdf)
+            for i in range(100):
+                time.sleep(0.01)
+                my_bar2.progress(i + 1, text=f"Mengekstrak teks dokumen... {i+1}%")
+            my_bar2.empty()
+            
+            st.session_state['hasil_ekstrak_pdf'] = ekstrak_data_pdf(file_upload)
+            st.session_state['list_obat_pdf'] = list(st.session_state['hasil_ekstrak_pdf']["list_obat"])
+            st.session_state['last_file_pdf'] = file_upload.name
         
         hasil = st.session_state['hasil_ekstrak_pdf']
         
@@ -299,9 +323,6 @@ with tab2:
         st.subheader("💊 Rincian Obat (PDF)")
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
-        if 'list_obat_pdf' not in st.session_state or st.session_state.get('last_file_obat_pdf') != file_upload.name:
-            st.session_state['list_obat_pdf'] = list(hasil["list_obat"])
-            st.session_state['last_file_obat_pdf'] = file_upload.name
 
         indices_to_remove2 = []
         for idx, item in enumerate(st.session_state['list_obat_pdf']):
