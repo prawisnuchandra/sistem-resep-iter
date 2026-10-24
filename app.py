@@ -8,22 +8,14 @@ import fitz
 import re
 import streamlit.components.v1 as components
 import json
-import pytesseract
-from PIL import Image
-import sys
-
-# Konfigurasi Tesseract untuk lokal Windows (Abaikan jika di Cloud)
-if sys.platform.startswith('win'):
-    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # ==========================================
-# 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT MODE)
+# 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT)
 # ==========================================
 st.set_page_config(page_title="Sistem Copy Resep 3D", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-    /* Hapus paksaan warna background agar teks tidak menyatu di Dark Mode */
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 800; }
     
@@ -44,7 +36,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KONEKSI GOOGLE SHEETS & SISTEM ANTI-DUPLIKAT
+# 2. KONEKSI GOOGLE SHEETS & ANTI-DUPLIKAT
 # ==========================================
 def get_gsheets_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -73,21 +65,16 @@ def simpan_data(data_dict):
     
     if sheet: 
         try:
-            # SISTEM ANTI DUPLIKAT ONLINE
             records = sheet.get_all_records()
             for i, rec in enumerate(records):
-                # Cari baris yang memiliki No RM, Nama, dan Tanggal Resep yang sama
                 if str(rec.get("No. RM", "")).strip() == str(data_dict["No. RM"]).strip() and \
                    str(rec.get("Nama Pasien", "")).strip().lower() == str(data_dict["Nama Pasien"]).strip().lower() and \
                    str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
-                    # Hapus baris lama (indeks gspread mulai dari 2 karena baris 1 adalah header)
                     sheet.delete_row(i + 2)
-                    break # Asumsi hanya ada 1 data lama
-        except:
-            pass
+                    break 
+        except: pass
         sheet.append_row(row_data)
     else: 
-        # SISTEM ANTI DUPLIKAT OFFLINE
         st.session_state['db_lokal'] = [
             r for r in st.session_state['db_lokal'] 
             if not (str(r[2]).strip() == str(data_dict["No. RM"]).strip() and str(r[1]).strip().lower() == str(data_dict["Nama Pasien"]).strip().lower() and str(r[3]).strip() == str(data_dict["Tanggal Resep Asli"]).strip())
@@ -100,20 +87,9 @@ def ambil_semua_data():
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI EKSTRAKSI PDF & GAMBAR (OCR)
+# 3. FUNGSI PARSER TEKS (INSTAN COPAS)
 # ==========================================
-def ekstrak_data_dokumen(file_upload):
-    teks_mentah = ""
-    if file_upload.type == "application/pdf":
-        teks_mentah = "".join(page.get_text() for page in fitz.open(stream=file_upload.read(), filetype="pdf"))
-    else:
-        try:
-            img = Image.open(file_upload)
-            teks_mentah = pytesseract.image_to_string(img)
-        except Exception as e:
-            st.error("Gagal membaca gambar. Pastikan Tesseract terpasang di Server/PC Anda.")
-            return {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
-            
+def ekstrak_data_dari_teks(teks_mentah):
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
     
     m_nama = re.search(r"Nama\s+Lengkap[\s:]*\n?\s*:?\s*\n?\s*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
@@ -202,20 +178,22 @@ with st.sidebar:
 # ==========================================
 st.title("✨ Sistem Cerdas Copy Resep & Etiket")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 Upload & Scan Dokumen", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
+tab1, tab2, tab3, tab4 = st.tabs(["🚀 Tempel Teks Resep", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
 with tab1:
     if st.session_state.get('show_success_tab1'):
-        st.success("✅ Sukses Disimpan! Data lama otomatis diperbarui jika duplikat. Buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan! Data duplikat otomatis diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Unggah PDF atau tekan `Ctrl+V` untuk **Paste Screenshot Gambar**.")
-    file_upload = st.file_uploader("📂 Unggah File PDF / Gambar", type=['pdf', 'png', 'jpg', 'jpeg'])
+    st.info("💡 **Petunjuk:** Buka halaman cetak resep RS, tekan `Ctrl+A` lalu `Ctrl+C`, kemudian **`Ctrl+V` (Paste)** ke dalam kotak di bawah ini.")
     
-    if file_upload:
-        if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_file') != file_upload.name:
-            st.session_state['hasil_ekstrak'] = ekstrak_data_dokumen(file_upload)
-            st.session_state['last_file'] = file_upload.name
+    # Kotak Teks Instan Pengganti Upload
+    teks_input_user = st.text_area("📋 Tempel (Paste) Teks Halaman Resep di Sini:", height=150, placeholder="Tekan Ctrl+V di sini...")
+    
+    if teks_input_user.strip():
+        if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_text') != teks_input_user:
+            st.session_state['hasil_ekstrak'] = ekstrak_data_dari_teks(teks_input_user)
+            st.session_state['last_text'] = teks_input_user
         
         hasil = st.session_state['hasil_ekstrak']
         
@@ -236,9 +214,9 @@ with tab1:
         st.subheader("💊 Rincian Obat")
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
-        if 'list_obat_aktif' not in st.session_state or st.session_state.get('last_file_obat') != file_upload.name:
+        if 'list_obat_aktif' not in st.session_state or st.session_state.get('last_text_obat') != teks_input_user:
             st.session_state['list_obat_aktif'] = list(hasil["list_obat"])
-            st.session_state['last_file_obat'] = file_upload.name
+            st.session_state['last_text_obat'] = teks_input_user
 
         obat_final_list = []
         indices_to_remove = []
@@ -287,7 +265,7 @@ with tab2:
         st.success("✅ Sukses Disimpan (Manual)! Data ganda otomatis ditimpa.")
         st.session_state['show_success_tab2'] = False
         
-    st.info("✍️ Input manual jika dokumen fisik tidak bisa di-scan PDF.")
+    st.info("✍️ Input manual jika diperlukan.")
     with st.form("form_manual", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -377,7 +355,7 @@ with tab3:
                 <div class="e-line"></div>
                 <table class="e-meta">
                     <tr><td width="30%">Nama</td><td>: <strong>{d['nama']}</strong></td></tr>
-                    <tr><td>No. RM</td><td>: {d['rm']}</td></tr>
+                    <tr><td width="30%">No. RM</td><td>: {d['rm']}</td></tr>
                     <tr><td>Tanggal</td><td>: {d['tgl_copy']}</td></tr>
                 </table>
                 <div class="e-signa">{o['signa']}</div>
@@ -410,7 +388,7 @@ with tab3:
             components.html(js_print_thermal, height=100)
 
     else:
-        st.info("⚠️ Kosong. Silakan proses resep di tab 'Upload & Scan Dokumen' terlebih dahulu.")
+        st.info("⚠️ Kosong. Silakan tempel teks resep di tab 'Tempel Teks Resep' terlebih dahulu.")
 
 with tab4:
     if not df_data.empty:
