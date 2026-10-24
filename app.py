@@ -8,8 +8,6 @@ import fitz
 import re
 import streamlit.components.v1 as components
 import json
-import requests
-from bs4 import BeautifulSoup
 
 # ==========================================
 # 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT 3D)
@@ -38,7 +36,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KONEKSI GOOGLE SHEETS & SISTEM HAPUS DUPLIKAT
+# 2. KONEKSI GOOGLE SHEETS & SISTEM DATABASE
 # ==========================================
 def get_gsheets_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -65,7 +63,6 @@ def simpan_data(data_dict):
         data_dict["Nama Dokter"], data_dict["No. Kartu"], data_dict["SEP"], data_dict["Jumlah Iter"], data_dict["Daftar Obat"]
     ]
     
-    # SISTEM DETEKSI & HAPUS DATA GANDA OTOMATIS
     if sheet: 
         try:
             records = sheet.get_all_records()
@@ -89,92 +86,61 @@ def ambil_semua_data():
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI PARSER (URL iHOSPITAL DENGAN LOGIN & PDF)
+# 3. FUNGSI PARSER (EKSTRAKSI TEKS CERDAS)
 # ==========================================
 def parse_teks_resep(teks_mentah):
-    hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
+    hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "iter": 2, "list_obat": []}
     
-    m_nama = re.search(r"Nama\s+Lengkap[\s:]*\n?\s*:?\s*\n?\s*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
-    if m_nama:
-        baris_nama = [b.strip() for b in m_nama.group(1).split('\n') if b.strip() and b.strip() != ':']
-        if baris_nama: hasil["nama"] = baris_nama[0]
-
-    m_rm = re.search(r"RM\s*[\s:]*\n?\s*:?\s*\n?\s*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
+    m_nama = re.search(r"Nama Lengkap\s*[:\s\n]*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
+    if m_nama: hasil["nama"] = m_nama.group(1).strip()
+    
+    m_rm = re.search(r"No\.\s*RM\s*[:\s\n]*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
     if m_rm: hasil["rm"] = m_rm.group(1).strip()
+    else:
+        m_rm_alt = re.search(r"RM\s*[:\s\n]*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
+        if m_rm_alt: hasil["rm"] = m_rm_alt.group(1).strip()
 
     m_kartu = re.search(r"(\d{13})\s*/\s*([A-Za-z0-9]{15,25})", teks_mentah)
     if m_kartu:
-        hasil["no_kartu"] = m_kartu.group(1).strip(); hasil["sep"] = m_kartu.group(2).strip()
-    else:
-        m_kartu_alt = re.search(r"Kartu/SEP[\s:]*\n?\s*:?\s*\n?\s*([\d]+)\s*/\s*([A-Za-z0-9]+)", teks_mentah, re.IGNORECASE)
-        if m_kartu_alt: hasil["no_kartu"] = m_kartu_alt.group(1).strip(); hasil["sep"] = m_kartu_alt.group(2).strip()
+        hasil["no_kartu"] = m_kartu.group(1).strip()
+        hasil["sep"] = m_kartu.group(2).strip()
 
-    m_tgl = re.search(r"Tanggal[\s:]*\n?\s*:?\s*\n?\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", teks_mentah, re.IGNORECASE)
+    m_tgl = re.search(r"Tanggal\s*:\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", teks_mentah, re.IGNORECASE)
     if m_tgl:
         hari, bulan_str, tahun = int(m_tgl.group(1)), m_tgl.group(2).lower(), int(m_tgl.group(3))
         bulan_map = {'jan':1, 'feb':2, 'mar':3, 'apr':4, 'mei':5, 'jun':6, 'jul':7, 'agu':8, 'sep':9, 'okt':10, 'nov':11, 'des':12}
         try: hasil["tgl_resep"] = datetime(tahun, next((v for k, v in bulan_map.items() if bulan_str.startswith(k)), datetime.now().month), hari)
         except: pass
 
-    m_dok = re.search(r"\(?\s*(dr\.\s*[A-Za-z\.\s\,]+(?:\,\s*[A-Za-z\.\s]+)*)\s*\)?", teks_mentah, re.IGNORECASE)
+    m_dok = re.search(r"(dr\.\s*[A-Za-z\.\s\,]+(?:Sp\.[A-Za-z\.\s\,]+)?)", teks_mentah, re.IGNORECASE)
     if m_dok: hasil["dokter"] = m_dok.group(1).strip()
     
-    kata_terlarang = ['TELAAH', 'Tepat', 'Dupikasi', 'Interaksi', 'Kontraindikasi', 'Klinis', 'Farmasetis', 'Petugas', 'Jam', 'Tanggal', 'Identitas', 'Nama']
-    try:
-        for bagian in teks_mentah.split('R/')[1:]:
-            baris = [b.strip() for b in bagian.strip().split('\n') if b.strip()]
-            if not baris: continue
-            nama_obat = baris[0].replace('//', '').strip()
-            jumlah, signa = "", ""
-            for b in baris[1:]:
-                if any(t.lower() in b.lower() for t in kata_terlarang): break 
-                if b.startswith('No.'): jumlah = b
-                elif 'x' in b.lower() and any(c.isdigit() for c in b): signa = b
-            if nama_obat and not any(t.lower() in nama_obat.lower() for t in kata_terlarang):
-                hasil["list_obat"].append({"nama": nama_obat, "signa": signa, "jumlah": jumlah, "status": "det orig"})
-    except: pass
+    m_iter = re.search(r"Iter\s+(\d+)", teks_mentah, re.IGNORECASE)
+    if m_iter: hasil["iter"] = int(m_iter.group(1))
+
+    blocks = teks_mentah.split("R /")[1:]
+    for block in blocks:
+        lines = [b.strip() for b in block.strip().split('\n') if b.strip()]
+        if not lines: continue
+        
+        nama_obat = lines[0].replace('//', '').strip()
+        jumlah, signa, waktu = "", "", ""
+        
+        for i, line in enumerate(lines):
+            if "Jumlah" in line and i + 1 < len(lines):
+                jumlah = lines[i+1].strip()
+            if "x" in line.lower() and any(c.isdigit() for c in line):
+                signa = line
+            if line.lower() in ['pagi', 'siang', 'sore', 'malam', 'pc', 'ac', 'prn', 'pc prn', 'ac prn']:
+                waktu = line
+        
+        if signa and waktu: signa = f"{signa} {waktu}"
+        elif waktu and not signa: signa = waktu
+            
+        if nama_obat and "TELAAH" not in nama_obat.upper():
+            hasil["list_obat"].append({"nama": nama_obat, "signa": signa, "jumlah": jumlah, "status": "det orig"})
             
     return hasil
-
-def ambil_data_dari_url(url_target):
-    teks_mentah = ""
-    try:
-        session = requests.Session()
-        # Meniru browser asli agar tidak ditolak server RS
-        session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
-        
-        user_login = st.secrets.get("ihospital_username", "wisnuchandra")
-        pass_login = st.secrets.get("ihospital_password", "Rsimp-20241")
-        
-        login_url = "https://ihospital.rsimasyithoh.com/index.php?r=site/login"
-        
-        # LANGKAH 1: Kunjungi halaman login untuk mengambil Cookie & Token Tersembunyi (YII_CSRF_TOKEN dll)
-        halaman_login = session.get(login_url, timeout=5)
-        soup_login = BeautifulSoup(halaman_login.text, 'html.parser')
-        
-        payload = {
-            "LoginForm[username]": user_login,
-            "LoginForm[password]": pass_login
-        }
-        
-        for hidden in soup_login.find_all("input", type="hidden"):
-            nama_hidden = hidden.get("name")
-            if nama_hidden: payload[nama_hidden] = hidden.get("value", "")
-        
-        # LANGKAH 2: Eksekusi login
-        session.post(login_url, data=payload, timeout=5)
-        
-        # LANGKAH 3: Ambil data dari link target
-        response = session.get(url_target, timeout=5)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            teks_mentah = soup.get_text()
-        else:
-            teks_mentah = f"Error HTTP: {response.status_code}"
-    except Exception as e:
-        teks_mentah = f"Gagal mengambil URL: {e}"
-
-    return parse_teks_resep(teks_mentah), teks_mentah
 
 def ekstrak_data_pdf(file_pdf):
     teks_mentah = "".join(page.get_text() for page in fitz.open(stream=file_pdf.read(), filetype="pdf"))
@@ -209,67 +175,53 @@ with st.sidebar:
     
     st.metric(label="Resep Masuk Hari Ini", value=f"{total_hari_ini} Resep", delta="Aktif")
     st.markdown(f'<div class="status-box status-{"success" if sheet else "warning"}">{"✅" if sheet else "⚠️"} {connection_status}</div>', unsafe_allow_html=True)
-    
-    st.markdown("### 📈 Grafik 7 Hari")
-    last_7_days = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
-    df_chart = pd.DataFrame({"Tanggal": last_7_days, "Jumlah": 0}).set_index("Tanggal")
-    if not df_data.empty and "Tanggal Input" in df_data.columns:
-        counts = df_data['Tanggal Input'].str[:10].value_counts()
-        for date, count in counts.items():
-            if date in df_chart.index: df_chart.at[date, "Jumlah"] = count
-    st.bar_chart(df_chart, use_container_width=True, color="#8B5CF6")
 
 # ==========================================
 # 5. HALAMAN UTAMA (TABS)
 # ==========================================
 st.title("✨ Sistem Cerdas Copy Resep & Etiket")
 
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔗 Ambil via Link iHospital", "📂 Upload PDF Resep", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Paste Teks Resep", "📂 Upload PDF", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
-# --- TAB 1: LINK iHOSPITAL ---
+# --- TAB 1: PASTE TEKS ---
 with tab1:
     if st.session_state.get('show_success_tab1'):
-        st.success("✅ Sukses Disimpan! Data ganda otomatis dihapus dan diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan! Data ganda otomatis dihapus. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Tempel tautan URL iHospital resep pasien di bawah ini. Sistem akan mencoba memotong pengamanan login.")
-    url_input = st.text_input("🔗 Link URL iHospital:", placeholder="https://ihospital.rsimasyithoh.com/...")
+    st.info("💡 **Petunjuk:** Buka resep di web iHospital, tekan `Ctrl+A` lalu `Ctrl+C`. Setelah itu, paste (`Ctrl+V`) teksnya di kotak bawah ini.")
+    teks_input_user = st.text_area("📋 Paste Teks Halaman Resep di Sini:", height=150, placeholder="Tekan Ctrl+V di sini...")
     
-    if url_input.strip():
-        if 'hasil_ekstrak_url' not in st.session_state or st.session_state.get('last_url') != url_input:
-            hasil, raw_text = ambil_data_dari_url(url_input)
-            st.session_state['hasil_ekstrak_url'] = hasil
-            st.session_state['last_url'] = url_input
-            st.session_state['raw_text_url'] = raw_text
+    if teks_input_user.strip():
+        if 'hasil_ekstrak_teks' not in st.session_state or st.session_state.get('last_teks') != teks_input_user:
+            st.session_state['hasil_ekstrak_teks'] = parse_teks_resep(teks_input_user)
+            st.session_state['last_teks'] = teks_input_user
         
-        hasil = st.session_state['hasil_ekstrak_url']
-        
-        if not hasil["nama"] or "Gagal" in st.session_state.get('raw_text_url', ''):
-            st.warning("⚠️ Server RS memblokir penarikan otomatis dari luar. Gunakan tab **Upload PDF Resep**.")
+        hasil = st.session_state['hasil_ekstrak_teks']
 
         st.subheader("👤 Identitas Pasien")
         c1, c2, c3 = st.columns(3)
         with c1:
-            nama_p = st.text_input("Nama Pasien", value=hasil["nama"], key="p_nama_url")
-            rm_p = st.text_input("No. RM", value=hasil["rm"], key="p_rm_url")
+            nama_p = st.text_input("Nama Pasien", value=hasil["nama"], key="p_nama_teks")
+            rm_p = st.text_input("No. RM", value=hasil["rm"], key="p_rm_teks")
         with c2:
-            kartu_p = st.text_input("No. Kartu BPJS", value=hasil["no_kartu"], key="p_kartu_url")
-            sep_p = st.text_input("No. SEP", value=hasil["sep"], key="p_sep_url")
+            kartu_p = st.text_input("No. Kartu BPJS", value=hasil["no_kartu"], key="p_kartu_teks")
+            sep_p = st.text_input("No. SEP", value=hasil["sep"], key="p_sep_teks")
         with c3:
-            tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_url")
-            dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_url")
-            iter_p = st.number_input("Jumlah Iter", min_value=0, value=2, key="p_iter_url")
+            tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_teks")
+            dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_teks")
+            iter_p = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_teks")
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat")
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
-        if 'list_obat_url' not in st.session_state or st.session_state.get('last_url_obat') != url_input:
-            st.session_state['list_obat_url'] = list(hasil["list_obat"])
-            st.session_state['last_url_obat'] = url_input
+        if 'list_obat_teks' not in st.session_state or st.session_state.get('last_teks_obat') != teks_input_user:
+            st.session_state['list_obat_teks'] = list(hasil["list_obat"])
+            st.session_state['last_teks_obat'] = teks_input_user
 
         indices_to_remove = []
-        for idx, item in enumerate(st.session_state['list_obat_url']):
+        for idx, item in enumerate(st.session_state['list_obat_teks']):
             col_buble, col_aksi = st.columns([7, 3])
             with col_buble:
                 st.markdown(f"""
@@ -280,19 +232,19 @@ with tab1:
                 """, unsafe_allow_html=True)
             with col_aksi:
                 st.write("") 
-                item['status'] = st.selectbox(f"Status:", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_u_{idx}")
+                item['status'] = st.selectbox(f"Status:", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_t_{idx}")
                 st.markdown('<div class="btn-delete">', unsafe_allow_html=True)
-                if st.button("🗑️ Hapus", key=f"del_u_{idx}"): indices_to_remove.append(idx)
+                if st.button("🗑️ Hapus", key=f"del_t_{idx}"): indices_to_remove.append(idx)
                 st.markdown('</div>', unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
 
         if indices_to_remove:
-            for i in sorted(indices_to_remove, reverse=True): st.session_state['list_obat_url'].pop(i)
+            for i in sorted(indices_to_remove, reverse=True): st.session_state['list_obat_teks'].pop(i)
             st.rerun()
             
         st.markdown("---")
-        if st.button("💾 Simpan Data Link & Siapkan Cetak", key="btn_save_url"):
-            teks_db = " | ".join([f"{o['nama']} ({o['signa']} {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_url']])
+        if st.button("💾 Simpan Data & Siapkan Cetak", key="btn_save_teks"):
+            teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_teks']])
             simpan_data({
                 "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
                 "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
@@ -301,7 +253,7 @@ with tab1:
             st.session_state['data_cetak'] = {
                 "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
                 "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
-                "obat_list": st.session_state['list_obat_url'], "tgl_copy": datetime.now().strftime("%d %B %Y")
+                "obat_list": st.session_state['list_obat_teks'], "tgl_copy": datetime.now().strftime("%d %B %Y")
             }
             st.session_state['show_success_tab1'] = True
             st.rerun()
@@ -309,10 +261,9 @@ with tab1:
 # --- TAB 2: UPLOAD PDF ---
 with tab2:
     if st.session_state.get('show_success_tab2'):
-        st.success("✅ Sukses Disimpan dari PDF! Data ganda otomatis dihapus dan diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan dari PDF! Data ganda otomatis dihapus. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab2'] = False
 
-    st.info("💡 **Petunjuk:** Jalur alternatif paling stabil. Unggah dokumen PDF resep.")
     file_upload = st.file_uploader("📂 Unggah File PDF Resep", type=['pdf'], key="uploader_pdf")
     
     if file_upload:
@@ -333,7 +284,7 @@ with tab2:
         with c3:
             tgl_r2 = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_pdf")
             dokter_p2 = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_pdf")
-            iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=2, key="p_iter_pdf")
+            iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_pdf")
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat (PDF)")
@@ -367,7 +318,7 @@ with tab2:
             
         st.markdown("---")
         if st.button("💾 Simpan Data PDF & Siapkan Cetak", key="btn_save_pdf"):
-            teks_db = " | ".join([f"{o['nama']} ({o['signa']} {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_pdf']])
+            teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_pdf']])
             simpan_data({
                 "Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), 
                 "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, 
@@ -387,7 +338,6 @@ with tab3:
         st.success("✅ Sukses Disimpan (Manual)! Data ganda otomatis ditimpa.")
         st.session_state['show_success_tab3'] = False
         
-    st.info("✍️ Input data secara manual jika diperlukan.")
     with st.form("form_manual", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -407,8 +357,6 @@ with tab3:
                 simpan_data({"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')})
                 st.session_state['show_success_tab3'] = True
                 st.rerun()
-            else:
-                st.error("Nama dan Daftar Obat wajib diisi!")
 
 # --- TAB 4: PUSAT CETAK ---
 with tab4:
@@ -511,9 +459,9 @@ with tab4:
             components.html(js_print_thermal, height=100)
 
     else:
-        st.info("⚠️ Kosong. Silakan proses data melalui tab Link iHospital atau Upload PDF terlebih dahulu.")
+        st.info("⚠️ Kosong. Silakan proses data melalui tab Paste Teks atau Upload PDF terlebih dahulu.")
 
-# --- TAB 5: LAPORAN & PENCARIAN ---
+# --- TAB 5: LAPORAN & PENCARIAN (DENGAN FITUR HAPUS) ---
 with tab5:
     if not df_data.empty:
         st.subheader("🔍 Cari Riwayat Pasien")
@@ -525,7 +473,7 @@ with tab5:
             else: st.warning("Data tidak ditemukan.")
             
         st.markdown("---")
-        st.subheader("📊 Laporan Bulanan (Unduh Data)")
+        st.subheader("📊 Laporan Bulanan (Unduh & Kelola Data)")
         
         df_data['Tanggal Input'] = pd.to_datetime(df_data['Tanggal Input'], errors='coerce')
         col_tgl1, col_tgl2 = st.columns(2)
@@ -536,10 +484,41 @@ with tab5:
         df_laporan = df_data.loc[mask].copy()
         
         st.write(f"Total data ditemukan: **{len(df_laporan)} resep**")
-        st.dataframe(df_laporan, use_container_width=True, hide_index=True)
         
+        # Fitur Hapus via Checkbox Interaktif
         if not df_laporan.empty:
-            csv = df_laporan.to_csv(index=False).encode('utf-8')
+            df_laporan.insert(0, 'Hapus', False)
+            
+            edited_df = st.data_editor(
+                df_laporan,
+                column_config={"Hapus": st.column_config.CheckboxColumn("Pilih Hapus", default=False)},
+                disabled=df_laporan.columns.drop('Hapus'),
+                hide_index=True,
+                use_container_width=True
+            )
+            
+            baris_terpilih = edited_df[edited_df['Hapus'] == True]
+            
+            if not baris_terpilih.empty:
+                if st.button("🗑️ Hapus Data Terpilih", type="primary"):
+                    if sheet:
+                        all_records = sheet.get_all_records()
+                        for i in range(len(all_records) - 1, -1, -1):
+                            rec = all_records[i]
+                            for _, row_del in baris_terpilih.iterrows():
+                                if str(rec.get('Tanggal Input')) == str(row_del['Tanggal Input']) and str(rec.get('No. RM')) == str(row_del['No. RM']):
+                                    sheet.delete_row(i + 2)
+                                    break
+                    else:
+                        st.session_state['db_lokal'] = [
+                            r for r in st.session_state['db_lokal']
+                            if not any((str(r[0]) == str(row_del['Tanggal Input']) and str(r[2]) == str(row_del['No. RM'])) for _, row_del in baris_terpilih.iterrows())
+                        ]
+                    
+                    st.success(f"Berhasil menghapus {len(baris_terpilih)} data!")
+                    st.rerun()
+
+            csv = df_laporan.drop(columns=['Hapus']).to_csv(index=False).encode('utf-8')
             st.download_button(label="📥 Unduh Laporan Rekap (CSV)", data=csv, file_name=f"Laporan_{start_date}_{end_date}.csv", mime="text/csv")
     else:
         st.info("Database masih kosong. Belum ada resep yang diinput.")
