@@ -3,5 +3,3 @@ pandas
 gspread
 oauth2client
 pymupdf
-requests
-beautifulsoup4
