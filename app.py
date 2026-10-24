@@ -8,6 +8,7 @@ import fitz
 import re
 import streamlit.components.v1 as components
 import json
+import time
 
 # ==========================================
 # 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT 3D)
@@ -67,11 +68,13 @@ def simpan_data(data_dict):
         try:
             records = sheet.get_all_records()
             for i, rec in enumerate(records):
-                # Deteksi RM dan No. RM agar cocok
                 rm_record = str(rec.get("No. RM", rec.get("RM", ""))).strip()
                 if rm_record == str(data_dict["No. RM"]).strip() and \
                    str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
-                    sheet.delete_row(i + 2)
+                    try:
+                        sheet.delete_rows(i + 2)
+                    except AttributeError:
+                        sheet.delete_row(i + 2)
                     break 
         except: pass
         sheet.append_row(row_data)
@@ -93,21 +96,17 @@ def ambil_semua_data():
 def parse_teks_resep(teks_mentah):
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "iter": 2, "list_obat": []}
     
-    # 1. Parsing NAMA (Cegah kata 'Alergi Obat' ikut masuk)
     m_nama = re.search(r"Nama Lengkap[\s:]*([A-Za-z\'\.\s]+?)(?:Alergi|Tgl|No\.)", teks_mentah, re.IGNORECASE)
     if m_nama: hasil["nama"] = m_nama.group(1).replace(':', '').strip()
     
-    # 2. Parsing RM
     m_rm = re.search(r"(?:No\.\s*RM|RM)[\s:]*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
     if m_rm: hasil["rm"] = m_rm.group(1).strip()
 
-    # 3. Parsing Kartu & SEP
     m_kartu = re.search(r"(\d{13})\s*/\s*([A-Za-z0-9]{15,25})", teks_mentah)
     if m_kartu:
         hasil["no_kartu"] = m_kartu.group(1).strip()
         hasil["sep"] = m_kartu.group(2).strip()
 
-    # 4. Parsing Tanggal
     m_tgl = re.search(r"Tanggal\s*:\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", teks_mentah, re.IGNORECASE)
     if m_tgl:
         hari, bulan_str, tahun = int(m_tgl.group(1)), m_tgl.group(2).lower(), int(m_tgl.group(3))
@@ -115,17 +114,14 @@ def parse_teks_resep(teks_mentah):
         try: hasil["tgl_resep"] = datetime(tahun, next((v for k, v in bulan_map.items() if bulan_str.startswith(k)), datetime.now().month), hari)
         except: pass
 
-    # 5. Parsing DOKTER (Mencegah kata TELAAH ikut masuk)
     m_dok = re.search(r"(dr\.[^\n\r]+)", teks_mentah, re.IGNORECASE)
     if m_dok:
         dok_bersih = m_dok.group(1).split("TELAAH")[0].strip()
         hasil["dokter"] = dok_bersih
         
-    # 6. Parsing Iterasi
     m_iter = re.search(r"Iter\s+(\d+)", teks_mentah, re.IGNORECASE)
     if m_iter: hasil["iter"] = int(m_iter.group(1))
 
-    # 7. Parsing Obat
     blocks = teks_mentah.split("R /")[1:]
     for block in blocks:
         lines = [b.strip() for b in block.strip().split('\n') if b.strip()]
@@ -198,12 +194,14 @@ with tab1:
         st.session_state['show_success_tab1'] = False
 
     st.info("💡 **Petunjuk:** Buka resep di web iHospital, tekan `Ctrl+A` lalu `Ctrl+C`. Setelah itu, paste (`Ctrl+V`) teksnya di kotak bawah ini.")
-    teks_input_user = st.text_area("📋 Paste Teks Halaman Resep di Sini:", height=150, placeholder="Tekan Ctrl+V di sini...")
+    teks_input_user = st.text_area("📋 Paste Teks Halaman Resep di Sini (Tekan Ctrl+Enter untuk memproses):", height=150, placeholder="Tekan Ctrl+V di sini...")
     
     if teks_input_user.strip():
         if 'hasil_ekstrak_teks' not in st.session_state or st.session_state.get('last_teks') != teks_input_user:
-            st.session_state['hasil_ekstrak_teks'] = parse_teks_resep(teks_input_user)
-            st.session_state['last_teks'] = teks_input_user
+            with st.spinner("⏳ Memproses data resep..."):
+                time.sleep(0.5) # Memberi efek loading visual
+                st.session_state['hasil_ekstrak_teks'] = parse_teks_resep(teks_input_user)
+                st.session_state['last_teks'] = teks_input_user
         
         hasil = st.session_state['hasil_ekstrak_teks']
 
@@ -252,19 +250,20 @@ with tab1:
             
         st.markdown("---")
         if st.button("💾 Simpan Data & Siapkan Cetak", key="btn_save_teks"):
-            teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_teks']])
-            simpan_data({
-                "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
-                "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
-                "Jumlah Iter": iter_p, "Daftar Obat": teks_db
-            })
-            st.session_state['data_cetak'] = {
-                "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
-                "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
-                "obat_list": st.session_state['list_obat_teks'], "tgl_copy": datetime.now().strftime("%d %B %Y")
-            }
-            st.session_state['show_success_tab1'] = True
-            st.rerun()
+            with st.spinner("💾 Menyimpan ke Database..."):
+                teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_teks']])
+                simpan_data({
+                    "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
+                    "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
+                    "Jumlah Iter": iter_p, "Daftar Obat": teks_db
+                })
+                st.session_state['data_cetak'] = {
+                    "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
+                    "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
+                    "obat_list": st.session_state['list_obat_teks'], "tgl_copy": datetime.now().strftime("%d %B %Y")
+                }
+                st.session_state['show_success_tab1'] = True
+                st.rerun()
 
 # --- TAB 2: UPLOAD PDF ---
 with tab2:
@@ -276,8 +275,10 @@ with tab2:
     
     if file_upload:
         if 'hasil_ekstrak_pdf' not in st.session_state or st.session_state.get('last_file_pdf') != file_upload.name:
-            st.session_state['hasil_ekstrak_pdf'] = ekstrak_data_pdf(file_upload)
-            st.session_state['last_file_pdf'] = file_upload.name
+            with st.spinner("⏳ Mengekstrak teks dari PDF..."):
+                time.sleep(0.5)
+                st.session_state['hasil_ekstrak_pdf'] = ekstrak_data_pdf(file_upload)
+                st.session_state['last_file_pdf'] = file_upload.name
         
         hasil = st.session_state['hasil_ekstrak_pdf']
         
@@ -326,19 +327,20 @@ with tab2:
             
         st.markdown("---")
         if st.button("💾 Simpan Data PDF & Siapkan Cetak", key="btn_save_pdf"):
-            teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_pdf']])
-            simpan_data({
-                "Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), 
-                "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, 
-                "Jumlah Iter": iter_p2, "Daftar Obat": teks_db
-            })
-            st.session_state['data_cetak'] = {
-                "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), 
-                "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2, 
-                "obat_list": st.session_state['list_obat_pdf'], "tgl_copy": datetime.now().strftime("%d %B %Y")
-            }
-            st.session_state['show_success_tab2'] = True
-            st.rerun()
+            with st.spinner("💾 Menyimpan ke Database..."):
+                teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_pdf']])
+                simpan_data({
+                    "Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), 
+                    "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, 
+                    "Jumlah Iter": iter_p2, "Daftar Obat": teks_db
+                })
+                st.session_state['data_cetak'] = {
+                    "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), 
+                    "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2, 
+                    "obat_list": st.session_state['list_obat_pdf'], "tgl_copy": datetime.now().strftime("%d %B %Y")
+                }
+                st.session_state['show_success_tab2'] = True
+                st.rerun()
 
 # --- TAB 3: INPUT MANUAL ---
 with tab3:
@@ -361,10 +363,11 @@ with tab3:
         m_obat = st.text_area("Daftar Obat (Tiap baris tekan Enter):", height=150)
         
         if st.form_submit_button("💾 Simpan Data Resep (Manual)"):
-            if m_nama and m_obat:
-                simpan_data({"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')})
-                st.session_state['show_success_tab3'] = True
-                st.rerun()
+            with st.spinner("💾 Menyimpan ke Database..."):
+                if m_nama and m_obat:
+                    simpan_data({"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')})
+                    st.session_state['show_success_tab3'] = True
+                    st.rerun()
 
 # --- TAB 4: PUSAT CETAK ---
 with tab4:
@@ -508,28 +511,31 @@ with tab5:
             
             if not baris_terpilih.empty:
                 if st.button("🗑️ Hapus Data Terpilih", type="primary"):
-                    if sheet:
-                        all_records = sheet.get_all_records()
-                        # Hapus dari belakang ke depan agar index tidak berantakan
-                        for i in range(len(all_records) - 1, -1, -1):
-                            rec = all_records[i]
-                            for _, row_del in baris_terpilih.iterrows():
-                                # AMAN: Menggunakan .get dengan fallback kolom 'RM' atau 'No. RM' agar terhindar dari KeyError
-                                rm_del = str(row_del.get('No. RM', row_del.get('RM', '')))
-                                rm_rec = str(rec.get('No. RM', rec.get('RM', '')))
-                                tgl_del = str(row_del.get('Tanggal Input', ''))
-                                tgl_rec = str(rec.get('Tanggal Input', ''))
-                                
-                                if tgl_rec == tgl_del and rm_rec == rm_del:
-                                    sheet.delete_row(i + 2)
-                                    break
-                    else:
-                        st.session_state['db_lokal'] = [
-                            r for r in st.session_state['db_lokal']
-                            if not any((str(r[0]) == str(row_del.get('Tanggal Input', '')) and str(r[2]) == str(row_del.get('No. RM', row_del.get('RM', '')))) for _, row_del in baris_terpilih.iterrows())
-                        ]
-                    
-                    st.success(f"Berhasil menghapus {len(baris_terpilih)} data!")
+                    with st.spinner("🗑️ Sedang menghapus data dari server..."):
+                        if sheet:
+                            all_records = sheet.get_all_records()
+                            for i in range(len(all_records) - 1, -1, -1):
+                                rec = all_records[i]
+                                for _, row_del in baris_terpilih.iterrows():
+                                    rm_del = str(row_del.get('No. RM', row_del.get('RM', '')))
+                                    rm_rec = str(rec.get('No. RM', rec.get('RM', '')))
+                                    tgl_del = str(row_del.get('Tanggal Input', ''))
+                                    tgl_rec = str(rec.get('Tanggal Input', ''))
+                                    
+                                    if tgl_rec == tgl_del and rm_rec == rm_del:
+                                        try:
+                                            sheet.delete_rows(i + 2)
+                                        except AttributeError:
+                                            sheet.delete_row(i + 2)
+                                        break
+                        else:
+                            st.session_state['db_lokal'] = [
+                                r for r in st.session_state['db_lokal']
+                                if not any((str(r[0]) == str(row_del.get('Tanggal Input', '')) and str(r[2]) == str(row_del.get('No. RM', row_del.get('RM', '')))) for _, row_del in baris_terpilih.iterrows())
+                            ]
+                        
+                    st.success(f"✅ Berhasil menghapus {len(baris_terpilih)} data!")
+                    time.sleep(1) # Jeda sebentar agar user bisa membaca notifikasi sukses
                     st.rerun()
 
             csv = df_laporan.drop(columns=['Hapus']).to_csv(index=False).encode('utf-8')
