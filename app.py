@@ -67,7 +67,9 @@ def simpan_data(data_dict):
         try:
             records = sheet.get_all_records()
             for i, rec in enumerate(records):
-                if str(rec.get("No. RM", "")).strip() == str(data_dict["No. RM"]).strip() and \
+                # Deteksi RM dan No. RM agar cocok
+                rm_record = str(rec.get("No. RM", rec.get("RM", ""))).strip()
+                if rm_record == str(data_dict["No. RM"]).strip() and \
                    str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
                     sheet.delete_row(i + 2)
                     break 
@@ -82,29 +84,30 @@ def simpan_data(data_dict):
 
 def ambil_semua_data():
     if sheet: return pd.DataFrame(sheet.get_all_records())
-    kolom = ["Tanggal Input", "Nama Pasien", "No. RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
+    kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI PARSER (EKSTRAKSI TEKS CERDAS)
+# 3. FUNGSI PARSER KETAT (EKSTRAKSI TEKS CERDAS)
 # ==========================================
 def parse_teks_resep(teks_mentah):
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "iter": 2, "list_obat": []}
     
-    m_nama = re.search(r"Nama Lengkap\s*[:\s\n]*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
-    if m_nama: hasil["nama"] = m_nama.group(1).strip()
+    # 1. Parsing NAMA (Cegah kata 'Alergi Obat' ikut masuk)
+    m_nama = re.search(r"Nama Lengkap[\s:]*([A-Za-z\'\.\s]+?)(?:Alergi|Tgl|No\.)", teks_mentah, re.IGNORECASE)
+    if m_nama: hasil["nama"] = m_nama.group(1).replace(':', '').strip()
     
-    m_rm = re.search(r"No\.\s*RM\s*[:\s\n]*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
+    # 2. Parsing RM
+    m_rm = re.search(r"(?:No\.\s*RM|RM)[\s:]*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
     if m_rm: hasil["rm"] = m_rm.group(1).strip()
-    else:
-        m_rm_alt = re.search(r"RM\s*[:\s\n]*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
-        if m_rm_alt: hasil["rm"] = m_rm_alt.group(1).strip()
 
+    # 3. Parsing Kartu & SEP
     m_kartu = re.search(r"(\d{13})\s*/\s*([A-Za-z0-9]{15,25})", teks_mentah)
     if m_kartu:
         hasil["no_kartu"] = m_kartu.group(1).strip()
         hasil["sep"] = m_kartu.group(2).strip()
 
+    # 4. Parsing Tanggal
     m_tgl = re.search(r"Tanggal\s*:\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", teks_mentah, re.IGNORECASE)
     if m_tgl:
         hari, bulan_str, tahun = int(m_tgl.group(1)), m_tgl.group(2).lower(), int(m_tgl.group(3))
@@ -112,12 +115,17 @@ def parse_teks_resep(teks_mentah):
         try: hasil["tgl_resep"] = datetime(tahun, next((v for k, v in bulan_map.items() if bulan_str.startswith(k)), datetime.now().month), hari)
         except: pass
 
-    m_dok = re.search(r"(dr\.\s*[A-Za-z\.\s\,]+(?:Sp\.[A-Za-z\.\s\,]+)?)", teks_mentah, re.IGNORECASE)
-    if m_dok: hasil["dokter"] = m_dok.group(1).strip()
-    
+    # 5. Parsing DOKTER (Mencegah kata TELAAH ikut masuk)
+    m_dok = re.search(r"(dr\.[^\n\r]+)", teks_mentah, re.IGNORECASE)
+    if m_dok:
+        dok_bersih = m_dok.group(1).split("TELAAH")[0].strip()
+        hasil["dokter"] = dok_bersih
+        
+    # 6. Parsing Iterasi
     m_iter = re.search(r"Iter\s+(\d+)", teks_mentah, re.IGNORECASE)
     if m_iter: hasil["iter"] = int(m_iter.group(1))
 
+    # 7. Parsing Obat
     blocks = teks_mentah.split("R /")[1:]
     for block in blocks:
         lines = [b.strip() for b in block.strip().split('\n') if b.strip()]
@@ -186,7 +194,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Paste Teks Resep", "📂 Upload PD
 # --- TAB 1: PASTE TEKS ---
 with tab1:
     if st.session_state.get('show_success_tab1'):
-        st.success("✅ Sukses Disimpan! Data ganda otomatis dihapus. Buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan! Data ganda otomatis ditimpa. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
     st.info("💡 **Petunjuk:** Buka resep di web iHospital, tekan `Ctrl+A` lalu `Ctrl+C`. Setelah itu, paste (`Ctrl+V`) teksnya di kotak bawah ini.")
@@ -261,7 +269,7 @@ with tab1:
 # --- TAB 2: UPLOAD PDF ---
 with tab2:
     if st.session_state.get('show_success_tab2'):
-        st.success("✅ Sukses Disimpan dari PDF! Data ganda otomatis dihapus. Buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan dari PDF! Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab2'] = False
 
     file_upload = st.file_uploader("📂 Unggah File PDF Resep", type=['pdf'], key="uploader_pdf")
@@ -335,7 +343,7 @@ with tab2:
 # --- TAB 3: INPUT MANUAL ---
 with tab3:
     if st.session_state.get('show_success_tab3'):
-        st.success("✅ Sukses Disimpan (Manual)! Data ganda otomatis ditimpa.")
+        st.success("✅ Sukses Disimpan (Manual)!")
         st.session_state['show_success_tab3'] = False
         
     with st.form("form_manual", clear_on_submit=True):
@@ -485,7 +493,6 @@ with tab5:
         
         st.write(f"Total data ditemukan: **{len(df_laporan)} resep**")
         
-        # Fitur Hapus via Checkbox Interaktif
         if not df_laporan.empty:
             df_laporan.insert(0, 'Hapus', False)
             
@@ -503,16 +510,23 @@ with tab5:
                 if st.button("🗑️ Hapus Data Terpilih", type="primary"):
                     if sheet:
                         all_records = sheet.get_all_records()
+                        # Hapus dari belakang ke depan agar index tidak berantakan
                         for i in range(len(all_records) - 1, -1, -1):
                             rec = all_records[i]
                             for _, row_del in baris_terpilih.iterrows():
-                                if str(rec.get('Tanggal Input')) == str(row_del['Tanggal Input']) and str(rec.get('No. RM')) == str(row_del['No. RM']):
+                                # AMAN: Menggunakan .get dengan fallback kolom 'RM' atau 'No. RM' agar terhindar dari KeyError
+                                rm_del = str(row_del.get('No. RM', row_del.get('RM', '')))
+                                rm_rec = str(rec.get('No. RM', rec.get('RM', '')))
+                                tgl_del = str(row_del.get('Tanggal Input', ''))
+                                tgl_rec = str(rec.get('Tanggal Input', ''))
+                                
+                                if tgl_rec == tgl_del and rm_rec == rm_del:
                                     sheet.delete_row(i + 2)
                                     break
                     else:
                         st.session_state['db_lokal'] = [
                             r for r in st.session_state['db_lokal']
-                            if not any((str(r[0]) == str(row_del['Tanggal Input']) and str(r[2]) == str(row_del['No. RM'])) for _, row_del in baris_terpilih.iterrows())
+                            if not any((str(r[0]) == str(row_del.get('Tanggal Input', '')) and str(r[2]) == str(row_del.get('No. RM', row_del.get('RM', '')))) for _, row_del in baris_terpilih.iterrows())
                         ]
                     
                     st.success(f"Berhasil menghapus {len(baris_terpilih)} data!")
