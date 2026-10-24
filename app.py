@@ -70,7 +70,6 @@ def simpan_data(data_dict):
         try:
             records = sheet.get_all_records()
             for i, rec in enumerate(records):
-                # Jika No. RM dan Tanggal Resep Asli sama persis, hapus data lama di G-Sheets
                 if str(rec.get("No. RM", "")).strip() == str(data_dict["No. RM"]).strip() and \
                    str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
                     sheet.delete_row(i + 2)
@@ -78,7 +77,6 @@ def simpan_data(data_dict):
         except: pass
         sheet.append_row(row_data)
     else: 
-        # Hapus duplikat untuk penyimpanan lokal
         st.session_state['db_lokal'] = [
             r for r in st.session_state['db_lokal'] 
             if not (str(r[2]).strip() == str(data_dict["No. RM"]).strip() and str(r[3]).strip() == str(data_dict["Tanggal Resep Asli"]).strip())
@@ -142,22 +140,31 @@ def ambil_data_dari_url(url_target):
     teks_mentah = ""
     try:
         session = requests.Session()
+        # Meniru browser asli agar tidak ditolak server RS
+        session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
         
-        # MENGGUNAKAN DATA LOGIN OTOMATIS
-        # Akan mencoba mengambil dari secrets terlebih dahulu, jika tidak ada akan menggunakan kredensial yang Anda berikan
         user_login = st.secrets.get("ihospital_username", "wisnuchandra")
         pass_login = st.secrets.get("ihospital_password", "Rsimp-20241")
         
         login_url = "https://ihospital.rsimasyithoh.com/index.php?r=site/login"
+        
+        # LANGKAH 1: Kunjungi halaman login untuk mengambil Cookie & Token Tersembunyi (YII_CSRF_TOKEN dll)
+        halaman_login = session.get(login_url, timeout=5)
+        soup_login = BeautifulSoup(halaman_login.text, 'html.parser')
+        
         payload = {
             "LoginForm[username]": user_login,
             "LoginForm[password]": pass_login
         }
         
-        # Proses eksekusi login ke sistem RS
+        for hidden in soup_login.find_all("input", type="hidden"):
+            nama_hidden = hidden.get("name")
+            if nama_hidden: payload[nama_hidden] = hidden.get("value", "")
+        
+        # LANGKAH 2: Eksekusi login
         session.post(login_url, data=payload, timeout=5)
         
-        # Ambil data dari link resep
+        # LANGKAH 3: Ambil data dari link target
         response = session.get(url_target, timeout=5)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -225,7 +232,7 @@ with tab1:
         st.success("✅ Sukses Disimpan! Data ganda otomatis dihapus dan diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Tempel tautan URL iHospital resep pasien di bawah ini. Sistem akan otomatis login.")
+    st.info("💡 **Petunjuk:** Tempel tautan URL iHospital resep pasien di bawah ini. Sistem akan mencoba memotong pengamanan login.")
     url_input = st.text_input("🔗 Link URL iHospital:", placeholder="https://ihospital.rsimasyithoh.com/...")
     
     if url_input.strip():
@@ -238,7 +245,7 @@ with tab1:
         hasil = st.session_state['hasil_ekstrak_url']
         
         if not hasil["nama"] or "Gagal" in st.session_state.get('raw_text_url', ''):
-            st.warning("⚠️ Data otomatis dari link gagal terbaca. Periksa koneksi internet atau gunakan tab **Upload PDF Resep**.")
+            st.warning("⚠️ Server RS memblokir penarikan otomatis dari luar. Gunakan tab **Upload PDF Resep**.")
 
         st.subheader("👤 Identitas Pasien")
         c1, c2, c3 = st.columns(3)
@@ -305,7 +312,7 @@ with tab2:
         st.success("✅ Sukses Disimpan dari PDF! Data ganda otomatis dihapus dan diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab2'] = False
 
-    st.info("💡 **Petunjuk:** Jalur alternatif unggah dokumen PDF resep.")
+    st.info("💡 **Petunjuk:** Jalur alternatif paling stabil. Unggah dokumen PDF resep.")
     file_upload = st.file_uploader("📂 Unggah File PDF Resep", type=['pdf'], key="uploader_pdf")
     
     if file_upload:
