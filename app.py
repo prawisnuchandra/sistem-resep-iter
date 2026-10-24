@@ -12,26 +12,31 @@ import pytesseract
 from PIL import Image
 import sys
 
-# Konfigurasi Tesseract untuk tes lokal di Windows (Diabaikan jika jalan di Streamlit Cloud)
+# Konfigurasi Tesseract untuk lokal Windows (Abaikan jika di Cloud)
 if sys.platform.startswith('win'):
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # ==========================================
-# 1. KONFIGURASI UI/UX (3D & COLORFUL)
+# 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT MODE)
 # ==========================================
 st.set_page_config(page_title="Sistem Copy Resep 3D", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; background-color: #F8FAFC; }
-    h1, h2, h3 { font-family: 'Inter', sans-serif; color: #1E293B; font-weight: 800; }
+    /* Hapus paksaan warna background agar teks tidak menyatu di Dark Mode */
+    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 800; }
+    
     .stButton>button { background: linear-gradient(135deg, #4F46E5, #3B82F6); color: white !important; border-radius: 12px; padding: 12px 24px; font-weight: 800; border: none; box-shadow: 0 6px 0 #312E81, 0 15px 20px rgba(0,0,0,0.2); transition: all 0.1s; text-transform: uppercase; letter-spacing: 1px; }
     .stButton>button:active, .stButton>button:focus { transform: translateY(6px); box-shadow: 0 0 0 #312E81, 0 5px 5px rgba(0,0,0,0.2); outline: none; }
+    
     .btn-delete>button { background: linear-gradient(135deg, #EF4444, #F87171) !important; box-shadow: 0 6px 0 #991B1B, 0 10px 15px rgba(239,68,68,0.3) !important; margin-top: 15px !important; }
     .btn-delete>button:active { transform: translateY(6px); box-shadow: 0 0 0 #991B1B, 0 3px 3px rgba(239,68,68,0.3) !important; }
+    
     .chat-bubble { background: linear-gradient(145deg, #ffffff, #f0f0f0); border-radius: 0px 20px 20px 20px; padding: 18px 25px; margin-bottom: 12px; box-shadow: 5px 5px 15px rgba(0,0,0,0.1), -5px -5px 15px rgba(255,255,255,0.05); border-left: 6px solid #0EA5E9; color: #0F172A !important; }
     .bubble-header { font-size: 17px; font-weight: 900; color: #0369A1 !important; margin-bottom: 8px; }
     .bubble-body { font-size: 15px; font-weight: 600; color: #334155 !important; }
+    
     .status-box { padding: 15px; border-radius: 15px; margin-bottom: 20px; font-weight: 800; text-align: center; background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
     .status-success { border-left: 5px solid #10B981; }
     .status-warning { border-left: 5px solid #F59E0B; }
@@ -39,7 +44,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KONEKSI GOOGLE SHEETS
+# 2. KONEKSI GOOGLE SHEETS & SISTEM ANTI-DUPLIKAT
 # ==========================================
 def get_gsheets_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -65,8 +70,29 @@ def simpan_data(data_dict):
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"), data_dict["Nama Pasien"], data_dict["No. RM"], data_dict["Tanggal Resep Asli"],
         data_dict["Nama Dokter"], data_dict["No. Kartu"], data_dict["SEP"], data_dict["Jumlah Iter"], data_dict["Daftar Obat"]
     ]
-    if sheet: sheet.append_row(row_data)
-    else: st.session_state['db_lokal'].append(row_data)
+    
+    if sheet: 
+        try:
+            # SISTEM ANTI DUPLIKAT ONLINE
+            records = sheet.get_all_records()
+            for i, rec in enumerate(records):
+                # Cari baris yang memiliki No RM, Nama, dan Tanggal Resep yang sama
+                if str(rec.get("No. RM", "")).strip() == str(data_dict["No. RM"]).strip() and \
+                   str(rec.get("Nama Pasien", "")).strip().lower() == str(data_dict["Nama Pasien"]).strip().lower() and \
+                   str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
+                    # Hapus baris lama (indeks gspread mulai dari 2 karena baris 1 adalah header)
+                    sheet.delete_row(i + 2)
+                    break # Asumsi hanya ada 1 data lama
+        except:
+            pass
+        sheet.append_row(row_data)
+    else: 
+        # SISTEM ANTI DUPLIKAT OFFLINE
+        st.session_state['db_lokal'] = [
+            r for r in st.session_state['db_lokal'] 
+            if not (str(r[2]).strip() == str(data_dict["No. RM"]).strip() and str(r[1]).strip().lower() == str(data_dict["Nama Pasien"]).strip().lower() and str(r[3]).strip() == str(data_dict["Tanggal Resep Asli"]).strip())
+        ]
+        st.session_state['db_lokal'].append(row_data)
 
 def ambil_semua_data():
     if sheet: return pd.DataFrame(sheet.get_all_records())
@@ -78,7 +104,6 @@ def ambil_semua_data():
 # ==========================================
 def ekstrak_data_dokumen(file_upload):
     teks_mentah = ""
-    # Deteksi jenis file: PDF atau Gambar
     if file_upload.type == "application/pdf":
         teks_mentah = "".join(page.get_text() for page in fitz.open(stream=file_upload.read(), filetype="pdf"))
     else:
@@ -86,7 +111,7 @@ def ekstrak_data_dokumen(file_upload):
             img = Image.open(file_upload)
             teks_mentah = pytesseract.image_to_string(img)
         except Exception as e:
-            st.error("Gagal membaca gambar. Jika Anda di Windows, Tesseract-OCR harus diinstal. Di Cloud akan otomatis jalan.")
+            st.error("Gagal membaca gambar. Pastikan Tesseract terpasang di Server/PC Anda.")
             return {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
             
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
@@ -181,16 +206,14 @@ tab1, tab2, tab3, tab4 = st.tabs(["🚀 Upload & Scan Dokumen", "✍️ Input Ma
 
 with tab1:
     if st.session_state.get('show_success_tab1'):
-        st.success("✅ Sukses Disimpan ke Database! Silakan buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan! Data lama otomatis diperbarui jika duplikat. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Unggah PDF atau langsung tekan `Ctrl+V` untuk **Paste Screenshot Gambar** ke area di bawah.")
-    # DUKUNGAN UNTUK GAMBAR DITAMBAHKAN DI SINI
+    st.info("💡 **Petunjuk:** Unggah PDF atau tekan `Ctrl+V` untuk **Paste Screenshot Gambar**.")
     file_upload = st.file_uploader("📂 Unggah File PDF / Gambar", type=['pdf', 'png', 'jpg', 'jpeg'])
     
     if file_upload:
         if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_file') != file_upload.name:
-            # Panggil fungsi yang baru (mendukung OCR)
             st.session_state['hasil_ekstrak'] = ekstrak_data_dokumen(file_upload)
             st.session_state['last_file'] = file_upload.name
         
@@ -261,7 +284,7 @@ with tab1:
 
 with tab2:
     if st.session_state.get('show_success_tab2'):
-        st.success("✅ Sukses Disimpan ke Database (Manual)!")
+        st.success("✅ Sukses Disimpan (Manual)! Data ganda otomatis ditimpa.")
         st.session_state['show_success_tab2'] = False
         
     st.info("✍️ Input manual jika dokumen fisik tidak bisa di-scan PDF.")
