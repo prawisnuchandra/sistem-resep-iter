@@ -8,113 +8,62 @@ import fitz
 import re
 import streamlit.components.v1 as components
 import json
+import pytesseract
+from PIL import Image
+import sys
+
+# Konfigurasi Tesseract untuk tes lokal di Windows (Diabaikan jika jalan di Streamlit Cloud)
+if sys.platform.startswith('win'):
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # ==========================================
-# 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT MODE)
+# 1. KONFIGURASI UI/UX (3D & COLORFUL)
 # ==========================================
 st.set_page_config(page_title="Sistem Copy Resep 3D", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-    /* Global Theme - Dibiarkan adaptif tanpa paksaan warna background */
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-    h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 800; }
-    
-    /* 3D Pushable Buttons */
-    .stButton>button { 
-        background: linear-gradient(135deg, #4F46E5, #3B82F6); 
-        color: white !important; 
-        border-radius: 12px; 
-        padding: 12px 24px; 
-        font-weight: 800; 
-        border: none; 
-        box-shadow: 0 6px 0 #312E81, 0 15px 20px rgba(0,0,0,0.2); 
-        transition: all 0.1s; 
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-    .stButton>button:active, .stButton>button:focus { 
-        transform: translateY(6px); 
-        box-shadow: 0 0 0 #312E81, 0 5px 5px rgba(0,0,0,0.2); 
-        outline: none;
-    }
-    
-    /* 3D Tombol Hapus */
-    .btn-delete>button { 
-        background: linear-gradient(135deg, #EF4444, #F87171) !important; 
-        box-shadow: 0 6px 0 #991B1B, 0 10px 15px rgba(239,68,68,0.3) !important;
-        margin-top: 15px !important; 
-    }
-    .btn-delete>button:active {
-        transform: translateY(6px); 
-        box-shadow: 0 0 0 #991B1B, 0 3px 3px rgba(239,68,68,0.3) !important;
-    }
-    
-    /* 3D Chat Bubble Obat (Dibuat tetap terang agar kontras di Dark Mode) */
-    .chat-bubble {
-        background: linear-gradient(145deg, #ffffff, #f0f0f0);
-        border-radius: 0px 20px 20px 20px;
-        padding: 18px 25px;
-        margin-bottom: 12px;
-        box-shadow: 5px 5px 15px rgba(0,0,0,0.1), -5px -5px 15px rgba(255,255,255,0.05);
-        border-left: 6px solid #0EA5E9;
-        color: #0F172A !important;
-    }
+    .block-container { padding-top: 2rem; padding-bottom: 2rem; background-color: #F8FAFC; }
+    h1, h2, h3 { font-family: 'Inter', sans-serif; color: #1E293B; font-weight: 800; }
+    .stButton>button { background: linear-gradient(135deg, #4F46E5, #3B82F6); color: white !important; border-radius: 12px; padding: 12px 24px; font-weight: 800; border: none; box-shadow: 0 6px 0 #312E81, 0 15px 20px rgba(0,0,0,0.2); transition: all 0.1s; text-transform: uppercase; letter-spacing: 1px; }
+    .stButton>button:active, .stButton>button:focus { transform: translateY(6px); box-shadow: 0 0 0 #312E81, 0 5px 5px rgba(0,0,0,0.2); outline: none; }
+    .btn-delete>button { background: linear-gradient(135deg, #EF4444, #F87171) !important; box-shadow: 0 6px 0 #991B1B, 0 10px 15px rgba(239,68,68,0.3) !important; margin-top: 15px !important; }
+    .btn-delete>button:active { transform: translateY(6px); box-shadow: 0 0 0 #991B1B, 0 3px 3px rgba(239,68,68,0.3) !important; }
+    .chat-bubble { background: linear-gradient(145deg, #ffffff, #f0f0f0); border-radius: 0px 20px 20px 20px; padding: 18px 25px; margin-bottom: 12px; box-shadow: 5px 5px 15px rgba(0,0,0,0.1), -5px -5px 15px rgba(255,255,255,0.05); border-left: 6px solid #0EA5E9; color: #0F172A !important; }
     .bubble-header { font-size: 17px; font-weight: 900; color: #0369A1 !important; margin-bottom: 8px; }
     .bubble-body { font-size: 15px; font-weight: 600; color: #334155 !important; }
-    
-    /* 3D Neumorphism Box (Cards) */
-    .status-box { 
-        padding: 15px; 
-        border-radius: 15px; 
-        margin-bottom: 20px; 
-        font-weight: 800; 
-        text-align: center; 
-        background: rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(10px);
-        border: 1px solid rgba(255, 255, 255, 0.2);
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
+    .status-box { padding: 15px; border-radius: 15px; margin-bottom: 20px; font-weight: 800; text-align: center; background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
     .status-success { border-left: 5px solid #10B981; }
     .status-warning { border-left: 5px solid #F59E0B; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KONEKSI GOOGLE SHEETS (BUG FIX LOKAL)
+# 2. KONEKSI GOOGLE SHEETS
 # ==========================================
 def get_gsheets_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
-        # Cek secara aman apakah st.secrets ada tanpa memicu error FileNotFound di laptop
         has_secrets = False
         try:
-            if "google_credentials" in st.secrets:
-                has_secrets = True
-        except:
-            pass
+            if "google_credentials" in st.secrets: has_secrets = True
+        except: pass
 
-        if has_secrets:
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(st.secrets["google_credentials"]), scope)
-        elif os.path.exists("credentials.json"):
-            creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-        else:
-            return None, "Offline (Lokal) 🔌"
+        if has_secrets: creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(st.secrets["google_credentials"]), scope)
+        elif os.path.exists("credentials.json"): creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+        else: return None, "Offline (Lokal) 🔌"
         
         return gspread.authorize(creds).open("Data Copy Resep Iter").sheet1, "Online (Tersinkron) 🌐"
     except Exception as e:
         return None, f"Koneksi Gagal: {e}"
 
 sheet, connection_status = get_gsheets_connection()
-
 if 'db_lokal' not in st.session_state: st.session_state['db_lokal'] = []
 
 def simpan_data(data_dict):
     row_data = [
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        data_dict["Nama Pasien"], data_dict["No. RM"], data_dict["Tanggal Resep Asli"],
-        data_dict["Nama Dokter"], data_dict["No. Kartu"], 
-        data_dict["SEP"], data_dict["Jumlah Iter"], data_dict["Daftar Obat"]
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), data_dict["Nama Pasien"], data_dict["No. RM"], data_dict["Tanggal Resep Asli"],
+        data_dict["Nama Dokter"], data_dict["No. Kartu"], data_dict["SEP"], data_dict["Jumlah Iter"], data_dict["Daftar Obat"]
     ]
     if sheet: sheet.append_row(row_data)
     else: st.session_state['db_lokal'].append(row_data)
@@ -125,10 +74,21 @@ def ambil_semua_data():
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI EKSTRAKSI PDF
+# 3. FUNGSI EKSTRAKSI PDF & GAMBAR (OCR)
 # ==========================================
-def ekstrak_data_pdf(file_pdf):
-    teks_mentah = "".join(page.get_text() for page in fitz.open(stream=file_pdf.read(), filetype="pdf"))
+def ekstrak_data_dokumen(file_upload):
+    teks_mentah = ""
+    # Deteksi jenis file: PDF atau Gambar
+    if file_upload.type == "application/pdf":
+        teks_mentah = "".join(page.get_text() for page in fitz.open(stream=file_upload.read(), filetype="pdf"))
+    else:
+        try:
+            img = Image.open(file_upload)
+            teks_mentah = pytesseract.image_to_string(img)
+        except Exception as e:
+            st.error("Gagal membaca gambar. Jika Anda di Windows, Tesseract-OCR harus diinstal. Di Cloud akan otomatis jalan.")
+            return {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
+            
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
     
     m_nama = re.search(r"Nama\s+Lengkap[\s:]*\n?\s*:?\s*\n?\s*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
@@ -157,17 +117,19 @@ def ekstrak_data_pdf(file_pdf):
     if m_dok: hasil["dokter"] = m_dok.group(1).strip()
     
     kata_terlarang = ['TELAAH', 'Tepat', 'Dupikasi', 'Interaksi', 'Kontraindikasi', 'Klinis', 'Farmasetis', 'Petugas', 'Jam', 'Tanggal', 'Identitas', 'Nama']
-    for bagian in teks_mentah.split('R/')[1:]:
-        baris = [b.strip() for b in bagian.strip().split('\n') if b.strip()]
-        if not baris: continue
-        nama_obat = baris[0].replace('//', '').strip()
-        jumlah, signa = "", ""
-        for b in baris[1:]:
-            if any(t.lower() in b.lower() for t in kata_terlarang): break 
-            if b.startswith('No.'): jumlah = b
-            elif 'x' in b.lower() and any(c.isdigit() for c in b): signa = b
-        if nama_obat and not any(t.lower() in nama_obat.lower() for t in kata_terlarang):
-            hasil["list_obat"].append({"nama": nama_obat, "signa": signa, "jumlah": jumlah, "status": "det orig"})
+    try:
+        for bagian in teks_mentah.split('R/')[1:]:
+            baris = [b.strip() for b in bagian.strip().split('\n') if b.strip()]
+            if not baris: continue
+            nama_obat = baris[0].replace('//', '').strip()
+            jumlah, signa = "", ""
+            for b in baris[1:]:
+                if any(t.lower() in b.lower() for t in kata_terlarang): break 
+                if b.startswith('No.'): jumlah = b
+                elif 'x' in b.lower() and any(c.isdigit() for c in b): signa = b
+            if nama_obat and not any(t.lower() in nama_obat.lower() for t in kata_terlarang):
+                hasil["list_obat"].append({"nama": nama_obat, "signa": signa, "jumlah": jumlah, "status": "det orig"})
+    except: pass
             
     return hasil
 
@@ -215,19 +177,21 @@ with st.sidebar:
 # ==========================================
 st.title("✨ Sistem Cerdas Copy Resep & Etiket")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 Upload PDF", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
+tab1, tab2, tab3, tab4 = st.tabs(["🚀 Upload & Scan Dokumen", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
 with tab1:
     if st.session_state.get('show_success_tab1'):
         st.success("✅ Sukses Disimpan ke Database! Silakan buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Unggah dokumen resep. Obat akan tampil dalam *3D Chat Bubble*.")
-    file_upload = st.file_uploader("📂 Unggah File PDF RS", type=['pdf'])
+    st.info("💡 **Petunjuk:** Unggah PDF atau langsung tekan `Ctrl+V` untuk **Paste Screenshot Gambar** ke area di bawah.")
+    # DUKUNGAN UNTUK GAMBAR DITAMBAHKAN DI SINI
+    file_upload = st.file_uploader("📂 Unggah File PDF / Gambar", type=['pdf', 'png', 'jpg', 'jpeg'])
     
     if file_upload:
         if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_file') != file_upload.name:
-            st.session_state['hasil_ekstrak'] = ekstrak_data_pdf(file_upload)
+            # Panggil fungsi yang baru (mendukung OCR)
+            st.session_state['hasil_ekstrak'] = ekstrak_data_dokumen(file_upload)
             st.session_state['last_file'] = file_upload.name
         
         hasil = st.session_state['hasil_ekstrak']
@@ -423,7 +387,7 @@ with tab3:
             components.html(js_print_thermal, height=100)
 
     else:
-        st.info("⚠️ Kosong. Silakan proses resep di tab 'Upload & Proses' terlebih dahulu.")
+        st.info("⚠️ Kosong. Silakan proses resep di tab 'Upload & Scan Dokumen' terlebih dahulu.")
 
 with tab4:
     if not df_data.empty:
