@@ -10,54 +10,109 @@ import streamlit.components.v1 as components
 import json
 
 # ==========================================
-# 1. KONFIGURASI UI/UX
+# 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT MODE)
 # ==========================================
-st.set_page_config(page_title="Copy Resep ITER", page_icon="💊", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Sistem Copy Resep 3D", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
+    /* Global Theme - Dibiarkan adaptif tanpa paksaan warna background */
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-    h1, h2, h3 { color: #1E293B; font-family: 'Inter', sans-serif; }
-    .stButton>button { background-color: #2563EB; color: white; border-radius: 8px; padding: 10px 24px; font-weight: 600; border: none; width: 100%; transition: 0.2s; }
-    .stButton>button:hover { background-color: #1D4ED8; box-shadow: 0 4px 12px rgba(37,99,235,0.2); }
-    .btn-delete>button { background-color: #EF4444 !important; color: white !important; padding: 6px 12px !important; border-radius: 6px !important; margin-top: 25px !important; }
-    .btn-delete>button:hover { background-color: #DC2626 !important; }
-    .status-box { padding: 15px; border-radius: 8px; margin-bottom: 20px; font-weight: 600; text-align: center; }
-    .status-success { background-color: #D1FAE5; color: #065F46; border: 1px solid #34D399; }
-    .status-warning { background-color: #FEF3C7; color: #92400E; border: 1px solid #FBBF24; }
+    h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 800; }
+    
+    /* 3D Pushable Buttons */
+    .stButton>button { 
+        background: linear-gradient(135deg, #4F46E5, #3B82F6); 
+        color: white !important; 
+        border-radius: 12px; 
+        padding: 12px 24px; 
+        font-weight: 800; 
+        border: none; 
+        box-shadow: 0 6px 0 #312E81, 0 15px 20px rgba(0,0,0,0.2); 
+        transition: all 0.1s; 
+        text-transform: uppercase;
+        letter-spacing: 1px;
+    }
+    .stButton>button:active, .stButton>button:focus { 
+        transform: translateY(6px); 
+        box-shadow: 0 0 0 #312E81, 0 5px 5px rgba(0,0,0,0.2); 
+        outline: none;
+    }
+    
+    /* 3D Tombol Hapus */
+    .btn-delete>button { 
+        background: linear-gradient(135deg, #EF4444, #F87171) !important; 
+        box-shadow: 0 6px 0 #991B1B, 0 10px 15px rgba(239,68,68,0.3) !important;
+        margin-top: 15px !important; 
+    }
+    .btn-delete>button:active {
+        transform: translateY(6px); 
+        box-shadow: 0 0 0 #991B1B, 0 3px 3px rgba(239,68,68,0.3) !important;
+    }
+    
+    /* 3D Chat Bubble Obat (Dibuat tetap terang agar kontras di Dark Mode) */
+    .chat-bubble {
+        background: linear-gradient(145deg, #ffffff, #f0f0f0);
+        border-radius: 0px 20px 20px 20px;
+        padding: 18px 25px;
+        margin-bottom: 12px;
+        box-shadow: 5px 5px 15px rgba(0,0,0,0.1), -5px -5px 15px rgba(255,255,255,0.05);
+        border-left: 6px solid #0EA5E9;
+        color: #0F172A !important;
+    }
+    .bubble-header { font-size: 17px; font-weight: 900; color: #0369A1 !important; margin-bottom: 8px; }
+    .bubble-body { font-size: 15px; font-weight: 600; color: #334155 !important; }
+    
+    /* 3D Neumorphism Box (Cards) */
+    .status-box { 
+        padding: 15px; 
+        border-radius: 15px; 
+        margin-bottom: 20px; 
+        font-weight: 800; 
+        text-align: center; 
+        background: rgba(255, 255, 255, 0.1);
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .status-success { border-left: 5px solid #10B981; }
+    .status-warning { border-left: 5px solid #F59E0B; }
     </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KONEKSI GOOGLE SHEETS (MODE SERVER & LOKAL)
+# 2. KONEKSI GOOGLE SHEETS (BUG FIX LOKAL)
 # ==========================================
 def get_gsheets_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
-        # Deteksi jika aplikasi berjalan di server Streamlit Cloud
-        if "google_credentials" in st.secrets:
-            creds_dict = json.loads(st.secrets["google_credentials"])
-            creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        # Deteksi jika berjalan di laptop lokal
+        # Cek secara aman apakah st.secrets ada tanpa memicu error FileNotFound di laptop
+        has_secrets = False
+        try:
+            if "google_credentials" in st.secrets:
+                has_secrets = True
+        except:
+            pass
+
+        if has_secrets:
+            creds = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(st.secrets["google_credentials"]), scope)
         elif os.path.exists("credentials.json"):
             creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
         else:
-            return None, "Mode Lokal Berjalan (Offline)"
+            return None, "Offline (Lokal) 🔌"
         
-        client = gspread.authorize(creds)
-        return client.open("Data Copy Resep Iter").sheet1, "Tersinkronisasi ke Google Sheets"
+        return gspread.authorize(creds).open("Data Copy Resep Iter").sheet1, "Online (Tersinkron) 🌐"
     except Exception as e:
-        return None, f"Gagal terhubung: {e}"
+        return None, f"Koneksi Gagal: {e}"
 
 sheet, connection_status = get_gsheets_connection()
 
-if 'db_lokal' not in st.session_state:
-    st.session_state['db_lokal'] = []
+if 'db_lokal' not in st.session_state: st.session_state['db_lokal'] = []
 
 def simpan_data(data_dict):
     row_data = [
         datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        data_dict["Nama Pasien"], data_dict["Tanggal Resep Asli"],
+        data_dict["Nama Pasien"], data_dict["No. RM"], data_dict["Tanggal Resep Asli"],
         data_dict["Nama Dokter"], data_dict["No. Kartu"], 
         data_dict["SEP"], data_dict["Jumlah Iter"], data_dict["Daftar Obat"]
     ]
@@ -66,55 +121,49 @@ def simpan_data(data_dict):
 
 def ambil_semua_data():
     if sheet: return pd.DataFrame(sheet.get_all_records())
-    kolom = ["Tanggal Input", "Nama Pasien", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
+    kolom = ["Tanggal Input", "Nama Pasien", "No. RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI EKSTRAKSI PDF 
+# 3. FUNGSI EKSTRAKSI PDF
 # ==========================================
 def ekstrak_data_pdf(file_pdf):
-    doc = fitz.open(stream=file_pdf.read(), filetype="pdf")
-    teks_mentah = ""
-    for page in doc: teks_mentah += page.get_text()
-    
-    hasil = {"nama": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
+    teks_mentah = "".join(page.get_text() for page in fitz.open(stream=file_pdf.read(), filetype="pdf"))
+    hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
     
     m_nama = re.search(r"Nama\s+Lengkap[\s:]*\n?\s*:?\s*\n?\s*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
     if m_nama:
         baris_nama = [b.strip() for b in m_nama.group(1).split('\n') if b.strip() and b.strip() != ':']
         if baris_nama: hasil["nama"] = baris_nama[0]
 
+    m_rm = re.search(r"RM\s*[\s:]*\n?\s*:?\s*\n?\s*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
+    if m_rm: hasil["rm"] = m_rm.group(1).strip()
+
     m_kartu = re.search(r"(\d{13})\s*/\s*([A-Za-z0-9]{15,25})", teks_mentah)
     if m_kartu:
-        hasil["no_kartu"] = m_kartu.group(1).strip()
-        hasil["sep"] = m_kartu.group(2).strip()
+        hasil["no_kartu"] = m_kartu.group(1).strip(); hasil["sep"] = m_kartu.group(2).strip()
     else:
         m_kartu_alt = re.search(r"Kartu/SEP[\s:]*\n?\s*:?\s*\n?\s*([\d]+)\s*/\s*([A-Za-z0-9]+)", teks_mentah, re.IGNORECASE)
-        if m_kartu_alt:
-            hasil["no_kartu"] = m_kartu_alt.group(1).strip()
-            hasil["sep"] = m_kartu_alt.group(2).strip()
+        if m_kartu_alt: hasil["no_kartu"] = m_kartu_alt.group(1).strip(); hasil["sep"] = m_kartu_alt.group(2).strip()
 
     m_tgl = re.search(r"Tanggal[\s:]*\n?\s*:?\s*\n?\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", teks_mentah, re.IGNORECASE)
     if m_tgl:
         hari, bulan_str, tahun = int(m_tgl.group(1)), m_tgl.group(2).lower(), int(m_tgl.group(3))
         bulan_map = {'jan':1, 'feb':2, 'mar':3, 'apr':4, 'mei':5, 'jun':6, 'jul':7, 'agu':8, 'sep':9, 'okt':10, 'nov':11, 'des':12}
-        bulan = next((v for k, v in bulan_map.items() if bulan_str.startswith(k)), datetime.now().month)
-        try: hasil["tgl_resep"] = datetime(tahun, bulan, hari)
+        try: hasil["tgl_resep"] = datetime(tahun, next((v for k, v in bulan_map.items() if bulan_str.startswith(k)), datetime.now().month), hari)
         except: pass
 
     m_dok = re.search(r"\(?\s*(dr\.\s*[A-Za-z\.\s\,]+(?:\,\s*[A-Za-z\.\s]+)*)\s*\)?", teks_mentah, re.IGNORECASE)
     if m_dok: hasil["dokter"] = m_dok.group(1).strip()
     
     kata_terlarang = ['TELAAH', 'Tepat', 'Dupikasi', 'Interaksi', 'Kontraindikasi', 'Klinis', 'Farmasetis', 'Petugas', 'Jam', 'Tanggal', 'Identitas', 'Nama']
-    bagian_r = teks_mentah.split('R/')
-    
-    for bagian in bagian_r[1:]:
+    for bagian in teks_mentah.split('R/')[1:]:
         baris = [b.strip() for b in bagian.strip().split('\n') if b.strip()]
         if not baris: continue
         nama_obat = baris[0].replace('//', '').strip()
         jumlah, signa = "", ""
         for b in baris[1:]:
-            if any(terlarang.lower() in b.lower() for terlarang in kata_terlarang): break 
+            if any(t.lower() in b.lower() for t in kata_terlarang): break 
             if b.startswith('No.'): jumlah = b
             elif 'x' in b.lower() and any(c.isdigit() for c in b): signa = b
         if nama_obat and not any(t.lower() in nama_obat.lower() for t in kata_terlarang):
@@ -123,44 +172,58 @@ def ekstrak_data_pdf(file_pdf):
     return hasil
 
 # ==========================================
-# 4. SIDEBAR & GRAFIK
+# 4. SIDEBAR & JAM 3D LIVE
 # ==========================================
 with st.sidebar:
-    st.image("https://cdn-icons-png.flaticon.com/512/2966/2966327.png", width=60)
-    st.title("Dashboard")
+    st.image("https://cdn-icons-png.flaticon.com/512/2966/2966327.png", width=80)
+    st.title("Pusat Kendali")
+    
+    components.html("""
+    <div style="font-family: 'Arial', sans-serif; text-align: center; padding: 15px; background: linear-gradient(145deg, #ffffff, #e6e6e6); box-shadow: 5px 5px 10px rgba(0,0,0,0.1); border-radius: 15px; margin-bottom: 20px;">
+        <div id="date" style="font-size: 13px; font-weight: bold; color: #64748B; text-transform: uppercase;"></div>
+        <div id="time" style="font-size: 26px; font-weight: 900; color: #2563EB; letter-spacing: 2px;"></div>
+    </div>
+    <script>
+        function updateTime() {
+            var now = new Date();
+            var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('date').innerText = now.toLocaleDateString('id-ID', options);
+            document.getElementById('time').innerText = now.toLocaleTimeString('id-ID');
+        }
+        setInterval(updateTime, 1000); updateTime();
+    </script>
+    """, height=120)
     
     df_data = ambil_semua_data()
     today_str = datetime.now().strftime("%Y-%m-%d")
     total_hari_ini = len(df_data[df_data['Tanggal Input'].astype(str).str.startswith(today_str)]) if not df_data.empty and "Tanggal Input" in df_data.columns else 0
     
-    st.metric(label="Masuk Hari Ini", value=f"{total_hari_ini} Resep")
+    st.metric(label="Resep Masuk Hari Ini", value=f"{total_hari_ini} Resep", delta="Aktif")
     st.markdown(f'<div class="status-box status-{"success" if sheet else "warning"}">{"✅" if sheet else "⚠️"} {connection_status}</div>', unsafe_allow_html=True)
     
-    st.markdown("---")
-    st.markdown("### 📈 Tren 7 Hari Terakhir")
-    
+    st.markdown("### 📈 Grafik 7 Hari")
     last_7_days = [(datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
-    df_chart = pd.DataFrame({"Tanggal": last_7_days, "Jumlah Resep": 0}).set_index("Tanggal")
-    
+    df_chart = pd.DataFrame({"Tanggal": last_7_days, "Jumlah": 0}).set_index("Tanggal")
     if not df_data.empty and "Tanggal Input" in df_data.columns:
-        df_data['Tgl_Only'] = df_data['Tanggal Input'].str[:10]
-        counts = df_data['Tgl_Only'].value_counts()
+        counts = df_data['Tanggal Input'].str[:10].value_counts()
         for date, count in counts.items():
-            if date in df_chart.index:
-                df_chart.at[date, "Jumlah Resep"] = count
-                
-    st.bar_chart(df_chart, use_container_width=True, color="#2563EB")
+            if date in df_chart.index: df_chart.at[date, "Jumlah"] = count
+    st.bar_chart(df_chart, use_container_width=True, color="#8B5CF6")
 
 # ==========================================
-# 5. HALAMAN UTAMA
+# 5. HALAMAN UTAMA (TABS)
 # ==========================================
-st.title("💊 Sistem Cetak Copy Resep ITER")
+st.title("✨ Sistem Cerdas Copy Resep & Etiket")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📄 Upload & Proses", "✍️ Input Manual", "🖨️ Cetak A5", "🗃️ Database"])
+tab1, tab2, tab3, tab4 = st.tabs(["🚀 Upload PDF", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
 with tab1:
-    st.info("💡 **Langkah 1:** Unggah PDF Resep. **Langkah 2:** Sesuaikan Status/Hapus Obat. **Langkah 3:** Simpan & Cetak.")
-    file_upload = st.file_uploader("Unggah File PDF dari Sistem RS", type=['pdf'])
+    if st.session_state.get('show_success_tab1'):
+        st.success("✅ Sukses Disimpan ke Database! Silakan buka Tab '🖨️ Pusat Cetak'.")
+        st.session_state['show_success_tab1'] = False
+
+    st.info("💡 **Petunjuk:** Unggah dokumen resep. Obat akan tampil dalam *3D Chat Bubble*.")
+    file_upload = st.file_uploader("📂 Unggah File PDF RS", type=['pdf'])
     
     if file_upload:
         if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_file') != file_upload.name:
@@ -169,23 +232,23 @@ with tab1:
         
         hasil = st.session_state['hasil_ekstrak']
         
-        with st.container():
-            st.subheader("Data Identitas")
-            c1, c2 = st.columns(2)
-            with c1:
-                nama_p = st.text_input("Nama Pasien", value=hasil["nama"])
-                tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"])
-                dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"])
-            with c2:
-                kartu_p = st.text_input("No. Kartu", value=hasil["no_kartu"])
-                sep_p = st.text_input("No. SEP", value=hasil["sep"])
-                iter_p = st.number_input("Jumlah Iter (Sesuai Resep Asli)", min_value=0, value=2)
+        st.subheader("👤 Identitas Pasien")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            nama_p = st.text_input("Nama Pasien", value=hasil["nama"])
+            rm_p = st.text_input("No. RM", value=hasil["rm"])
+        with c2:
+            kartu_p = st.text_input("No. Kartu BPJS", value=hasil["no_kartu"])
+            sep_p = st.text_input("No. SEP", value=hasil["sep"])
+        with c3:
+            tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"])
+            dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"])
+            iter_p = st.number_input("Jumlah Iter", min_value=0, value=2)
             
         st.markdown("---")
-        st.subheader("💊 Daftar Obat & Status Penyerahan")
+        st.subheader("💊 Rincian Obat")
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
-        
         if 'list_obat_aktif' not in st.session_state or st.session_state.get('last_file_obat') != file_upload.name:
             st.session_state['list_obat_aktif'] = list(hasil["list_obat"])
             st.session_state['last_file_obat'] = file_upload.name
@@ -194,54 +257,77 @@ with tab1:
         indices_to_remove = []
 
         for idx, item in enumerate(st.session_state['list_obat_aktif']):
-            col_nama, col_status, col_hapus = st.columns([7, 3, 1])
-            with col_nama:
-                st.markdown(f"<div style='padding-top: 8px; font-size: 15px;'><strong>R/</strong> {item['nama']} ({item['signa']} - {item['jumlah']})</div>", unsafe_allow_html=True)
-            with col_status:
-                selected_status = st.selectbox(f"Status #{idx}", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_{idx}", label_visibility="collapsed")
-                item['status'] = selected_status
-            with col_hapus:
+            col_buble, col_aksi = st.columns([7, 3])
+            with col_buble:
+                st.markdown(f"""
+                <div class="chat-bubble">
+                    <div class="bubble-header">💊 R/ {item['nama']}</div>
+                    <div class="bubble-body">📋 Aturan Pakai: <strong>{item['signa']}</strong> &nbsp;&nbsp;|&nbsp;&nbsp; 📦 Jumlah: <strong>{item['jumlah']}</strong></div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_aksi:
+                st.write("") 
+                item['status'] = st.selectbox(f"Ubah Status:", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_{idx}")
                 st.markdown('<div class="btn-delete">', unsafe_allow_html=True)
-                if st.button("🗑️", key=f"del_{idx}"): indices_to_remove.append(idx)
+                if st.button("🗑️ Hapus", key=f"del_{idx}"): indices_to_remove.append(idx)
                 st.markdown('</div>', unsafe_allow_html=True)
+                
             obat_final_list.append(item)
+            st.markdown("<br>", unsafe_allow_html=True)
 
         if indices_to_remove:
             for i in sorted(indices_to_remove, reverse=True): st.session_state['list_obat_aktif'].pop(i)
             st.rerun()
             
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 Simpan Data & Siapkan Cetak Copy Resep A5"):
+        st.markdown("---")
+        if st.button("💾 Simpan Data & Siapkan Cetak"):
             teks_db = " | ".join([f"{o['nama']} ({o['signa']} {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_aktif']])
-            simpan_data({"Nama Pasien": nama_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, "Jumlah Iter": iter_p, "Daftar Obat": teks_db})
-            
+            simpan_data({
+                "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
+                "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
+                "Jumlah Iter": iter_p, "Daftar Obat": teks_db
+            })
             st.session_state['data_cetak'] = {
-                "nama": nama_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p,
-                "iter": iter_p, "obat_list": st.session_state['list_obat_aktif'], "tgl_copy": datetime.now().strftime("%d %B %Y")
+                "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
+                "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
+                "obat_list": st.session_state['list_obat_aktif'], "tgl_copy": datetime.now().strftime("%d %B %Y")
             }
-            st.success("✅ Berhasil disimpan! Silakan buka Tab '🖨️ Cetak A5'.")
+            st.session_state['show_success_tab1'] = True
+            st.rerun()
 
 with tab2:
+    if st.session_state.get('show_success_tab2'):
+        st.success("✅ Sukses Disimpan ke Database (Manual)!")
+        st.session_state['show_success_tab2'] = False
+        
+    st.info("✍️ Input manual jika dokumen fisik tidak bisa di-scan PDF.")
     with st.form("form_manual", clear_on_submit=True):
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
             m_nama = st.text_input("Nama Pasien")
+            m_rm = st.text_input("No. RM")
+        with c2:
+            m_kartu = st.text_input("No. Kartu BPJS")
+            m_sep = st.text_input("No. SEP")
+        with c3:
             m_tgl = st.date_input("Tanggal Resep Asli")
             m_dok = st.text_input("Nama Dokter")
             m_iter = st.number_input("Jumlah Iter", min_value=0)
-        with c2:
-            m_kartu = st.text_input("No. Kartu (BPJS)")
-            m_sep = st.text_input("No. SEP")
         m_obat = st.text_area("Daftar Obat (Tiap baris tekan Enter):", height=150)
-        if st.form_submit_button("Simpan Data Resep") and m_nama and m_obat:
-            simpan_data({"Nama Pasien": m_nama, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')})
-            st.success("✅ Tersimpan!")
-            st.rerun()
+        
+        if st.form_submit_button("💾 Simpan Data Resep (Manual)"):
+            if m_nama and m_obat:
+                simpan_data({"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')})
+                st.session_state['show_success_tab2'] = True
+                st.rerun()
+            else:
+                st.error("Nama dan Daftar Obat wajib diisi!")
 
 with tab3:
     if 'data_cetak' in st.session_state:
         d = st.session_state['data_cetak']
         
+        st.subheader("📑 1. Cetak Copy Resep (A5)")
         html_rows_obat = ""
         for o in d['obat_list']:
             html_rows_obat += f"""
@@ -255,62 +341,116 @@ with tab3:
             """
             
         html_a5 = f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                @page {{ size: A5 portrait; margin: 10mm; }}
-                body {{ background-color: #FFFFFF !important; color: #000000 !important; font-family: 'Arial', sans-serif; font-size: 12px; margin: 0; padding: 20px; }}
-                .kop {{ text-align: center; font-weight: bold; }}
-                .kop h2 {{ margin: 0; font-size: 15px; color: #000000; text-transform: uppercase; }}
-                .kop p {{ margin: 2px 0; font-size: 11px; font-weight: normal; color: #000000; }}
-                .line-thick {{ border-bottom: 2px solid #000; margin-top: 5px; margin-bottom: 10px; }}
-                .line-thin {{ border-bottom: 1px solid #000; margin-top: 10px; margin-bottom: 10px; }}
-                .title {{ text-align: center; font-weight: bold; font-size: 14px; text-decoration: underline; margin-bottom: 15px; color: #000000; }}
-                .meta-table {{ width: 100%; font-size: 11px; margin-bottom: 15px; color: #000000; border-collapse: collapse; }}
-                .meta-table td {{ padding: 3px 0; }}
-                .obat-table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; color: #000000; }}
-                .footer-box {{ margin-top: 40px; float: right; text-align: center; width: 200px; color: #000000; }}
-                .pcc {{ font-weight: bold; margin-bottom: 50px; }}
-                .bottom-text {{ clear: both; text-align: center; font-style: italic; font-size: 10px; color: #333333; margin-top: 40px; border-top: 1px solid #000; padding-top: 5px; }}
-            </style>
-        </head>
-        <body>
-            <div class="kop">
-                <h2>RUMAH SAKIT ISLAM MASYITHOH</h2>
-                <p>Jl. A.Yani No 6-7 Bangil 67153</p>
-                <p>Telefarmasi (WA) 0343-741018</p>
-            </div>
-            <div class="line-thick"></div>
-            <div class="title">SALINAN RESEP (COPY RESEP)</div>
+        <!DOCTYPE html><html><head><style>
+            @page {{ size: A5 portrait; margin: 10mm; }}
+            body {{ background-color: #FFFFFF !important; color: #000000 !important; font-family: 'Arial', sans-serif; font-size: 12px; margin: 0; padding: 20px; }}
+            .kop {{ text-align: center; font-weight: bold; }}
+            .kop h2 {{ margin: 0; font-size: 15px; color: #000000; text-transform: uppercase; }}
+            .kop p {{ margin: 2px 0; font-size: 11px; font-weight: normal; color: #000000; }}
+            .line-thick {{ border-bottom: 2px solid #000; margin-top: 5px; margin-bottom: 10px; }}
+            .line-thin {{ border-bottom: 1px solid #000; margin-top: 10px; margin-bottom: 10px; }}
+            .title {{ text-align: center; font-weight: bold; font-size: 14px; text-decoration: underline; margin-bottom: 15px; color: #000000; }}
+            .meta-table {{ width: 100%; font-size: 11px; margin-bottom: 15px; color: #000000; border-collapse: collapse; }}
+            .meta-table td {{ padding: 3px 0; }}
+            .obat-table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; color: #000000; }}
+            .footer-box {{ margin-top: 40px; float: right; text-align: center; width: 200px; color: #000000; }}
+            .pcc {{ font-weight: bold; margin-bottom: 50px; }}
+            .bottom-text {{ clear: both; text-align: center; font-style: italic; font-size: 10px; color: #333333; margin-top: 40px; border-top: 1px solid #000; padding-top: 5px; }}
+        </style></head><body>
+            <div class="kop"><h2>RUMAH SAKIT ISLAM MASYITHOH</h2><p>Jl. A.Yani No 6-7 Bangil 67153</p><p>Telefarmasi (WA) 0343-741018</p></div>
+            <div class="line-thick"></div><div class="title">SALINAN RESEP (COPY RESEP)</div>
             <table class="meta-table">
-                <tr><td width="20%"><strong>Resep Dari</strong></td><td width="35%">: {d['dokter']}</td><td width="15%"><strong>No. Kartu</strong></td><td width="30%">: {d['kartu']}</td></tr>
-                <tr><td><strong>Tgl Resep Asli</strong></td><td>: {d['tgl_resep']}</td><td><strong>No. SEP</strong></td><td>: {d['sep']}</td></tr>
+                <tr><td width="20%"><strong>Resep Dari</strong></td><td width="35%">: {d['dokter']}</td><td width="15%"><strong>No. RM</strong></td><td width="30%">: {d['rm']}</td></tr>
+                <tr><td><strong>Tgl Resep Asli</strong></td><td>: {d['tgl_resep']}</td><td><strong>No. Kartu</strong></td><td>: {d['kartu']}</td></tr>
                 <tr><td><strong>Nama Pasien</strong></td><td>: <strong style="font-size: 13px;">{d['nama']}</strong></td><td><strong>Status Iter</strong></td><td>: <strong>Iter {d['iter']}x</strong></td></tr>
             </table>
             <div class="line-thin"></div>
             <table class="obat-table">{html_rows_obat}</table>
-            <div class="footer-box">
-                <div class="pcc">p.c.c (Pro Copy Conform)</div>
-                <div>_________________________</div>
-                <div style="font-size: 10px; margin-top: 4px;">Apoteker Penanggung Jawab</div>
-            </div>
+            <div class="footer-box"><div class="pcc">p.c.c (Pro Copy Conform)</div><div>_________________________</div><div style="font-size: 10px; margin-top: 4px;">Apoteker Penanggung Jawab</div></div>
             <div class="bottom-text">Kesembuhan Dan Kesehatan Anda Adalah Do'a Yang Kami Panjatkan</div>
-        </body>
-        </html>
+        </body></html>
         """
         
-        components.html(html_a5, height=520, scrolling=True)
-        js_print = f"""
-        <script>
-        function printDiv() {{ var win = window.open('', '', 'height=700,width=900'); win.document.write(`{html_a5}`); win.document.close(); win.print(); }}
-        </script>
-        <button onclick="printDiv()" style="background-color: #059669; color: white; border: none; padding: 12px 24px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%;">🖨️ Klik Di Sini Untuk Print Kertas A5</button>
+        c1, c2 = st.columns([8,2])
+        with c1: components.html(html_a5, height=300, scrolling=True)
+        with c2: 
+            st.markdown("<br><br><br>", unsafe_allow_html=True)
+            js_print_a5 = f"""<script>function printA5() {{ var win = window.open('', '', 'height=700,width=900'); win.document.write(`{html_a5}`); win.document.close(); win.print(); }}</script>
+            <button onclick="printA5()" style="background: linear-gradient(135deg, #10B981, #059669); color: white; border: none; padding: 15px; font-weight: 800; border-radius: 12px; cursor: pointer; width: 100%; box-shadow: 0 6px 0 #047857, 0 10px 20px rgba(16,185,129,0.3); transition: all 0.1s;" onmousedown="this.style.transform='translateY(6px)'; this.style.boxShadow='0 0 0 #047857, 0 5px 5px rgba(16,185,129,0.3)';" onmouseup="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 0 #047857, 0 10px 20px rgba(16,185,129,0.3)';">🖨️ PRINT COPY RESEP</button>"""
+            components.html(js_print_a5, height=100)
+
+        st.markdown("---")
+        
+        st.subheader("🏷️ 2. Cetak Etiket (Thermal 7x5 cm)")
+        html_etiket_pages = ""
+        for o in d['obat_list']:
+            html_etiket_pages += f"""
+            <div class="etiket-page">
+                <div class="e-kop">RSI MASYITHOH BANGIL<br><span style="font-weight: normal; font-size: 7px;">Telefarmasi (WA) 0343-741018</span></div>
+                <div class="e-line"></div>
+                <table class="e-meta">
+                    <tr><td width="30%">Nama</td><td>: <strong>{d['nama']}</strong></td></tr>
+                    <tr><td>No. RM</td><td>: {d['rm']}</td></tr>
+                    <tr><td>Tanggal</td><td>: {d['tgl_copy']}</td></tr>
+                </table>
+                <div class="e-signa">{o['signa']}</div>
+                <div class="e-obat">Nama Obat: <strong>{o['nama']}</strong></div>
+                <div class="e-footer">Semoga Lekas Sembuh</div>
+            </div>
+            """
+            
+        html_thermal = f"""
+        <!DOCTYPE html><html><head><style>
+            @page {{ size: 70mm 50mm; margin: 0; }}
+            body {{ background-color: #FFFFFF !important; color: #000000 !important; font-family: 'Arial', sans-serif; margin: 0; padding: 0; }}
+            .etiket-page {{ width: 66mm; height: 46mm; padding: 2mm; box-sizing: border-box; page-break-after: always; overflow: hidden; }}
+            .e-kop {{ text-align: center; font-size: 9px; font-weight: bold; margin-bottom: 2px; }}
+            .e-line {{ border-bottom: 1px solid #000; margin-bottom: 3px; }}
+            .e-meta {{ width: 100%; font-size: 8px; margin-bottom: 5px; }}
+            .e-meta td {{ padding: 1px 0; vertical-align: top; }}
+            .e-signa {{ text-align: center; font-size: 11px; font-weight: bold; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 0; margin-bottom: 5px; }}
+            .e-obat {{ font-size: 8px; padding-left: 2px; }}
+            .e-footer {{ text-align: center; font-size: 7px; font-style: italic; margin-top: 5px; border-top: 1px dashed #aaa; padding-top: 3px; }}
+        </style></head><body>{html_etiket_pages}</body></html>
         """
-        components.html(js_print, height=60)
+        
+        c3, c4 = st.columns([8,2])
+        with c3: components.html(html_thermal, height=200, scrolling=True)
+        with c4:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            js_print_thermal = f"""<script>function printThermal() {{ var win = window.open('', '', 'height=400,width=400'); win.document.write(`{html_thermal}`); win.document.close(); win.print(); }}</script>
+            <button onclick="printThermal()" style="background: linear-gradient(135deg, #F59E0B, #D97706); color: white; border: none; padding: 15px; font-weight: 800; border-radius: 12px; cursor: pointer; width: 100%; box-shadow: 0 6px 0 #B45309, 0 10px 20px rgba(245,158,11,0.3); transition: all 0.1s;" onmousedown="this.style.transform='translateY(6px)'; this.style.boxShadow='0 0 0 #B45309, 0 5px 5px rgba(245,158,11,0.3)';" onmouseup="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 0 #B45309, 0 10px 20px rgba(245,158,11,0.3)';">🖨️ PRINT ETIKET THERMAL</button>"""
+            components.html(js_print_thermal, height=100)
+
     else:
-        st.info("⚠️ Selesaikan unggah PDF dan klik Simpan Data di Tab 1 terlebih dahulu.")
+        st.info("⚠️ Kosong. Silakan proses resep di tab 'Upload & Proses' terlebih dahulu.")
 
 with tab4:
-    if not df_data.empty: st.dataframe(df_data, use_container_width=True, hide_index=True)
-    else: st.info("Database kosong.")
+    if not df_data.empty:
+        st.subheader("🔍 Cari Riwayat Pasien")
+        pencarian = st.text_input("Masukkan Nama Pasien atau No. RM:")
+        
+        if pencarian:
+            df_cari = df_data[df_data.apply(lambda row: row.astype(str).str.contains(pencarian, case=False).any(), axis=1)]
+            if not df_cari.empty: st.dataframe(df_cari, use_container_width=True)
+            else: st.warning("Data tidak ditemukan.")
+            
+        st.markdown("---")
+        st.subheader("📊 Laporan Bulanan (Unduh Data)")
+        
+        df_data['Tanggal Input'] = pd.to_datetime(df_data['Tanggal Input'], errors='coerce')
+        col_tgl1, col_tgl2 = st.columns(2)
+        with col_tgl1: start_date = st.date_input("Dari Tanggal", datetime.now().date().replace(day=1))
+        with col_tgl2: end_date = st.date_input("Sampai Tanggal", datetime.now().date())
+        
+        mask = (df_data['Tanggal Input'].dt.date >= start_date) & (df_data['Tanggal Input'].dt.date <= end_date)
+        df_laporan = df_data.loc[mask].copy()
+        
+        st.write(f"Total data ditemukan: **{len(df_laporan)} resep**")
+        st.dataframe(df_laporan, use_container_width=True, hide_index=True)
+        
+        if not df_laporan.empty:
+            csv = df_laporan.to_csv(index=False).encode('utf-8')
+            st.download_button(label="📥 Unduh Laporan Rekap (CSV)", data=csv, file_name=f"Laporan_{start_date}_{end_date}.csv", mime="text/csv")
+    else:
+        st.info("Database masih kosong. Belum ada resep yang diinput.")
