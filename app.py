@@ -8,6 +8,8 @@ import fitz
 import re
 import streamlit.components.v1 as components
 import json
+import requests
+from bs4 import BeautifulSoup
 
 # ==========================================
 # 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT)
@@ -87,11 +89,25 @@ def ambil_semua_data():
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI PARSER TEKS (INSTAN COPAS)
+# 3. FUNGSI SCRAPER URL iHOSPITAL
 # ==========================================
-def ekstrak_data_dari_teks(teks_mentah):
+def ambil_data_dari_url(url_target):
+    teks_mentah = ""
+    try:
+        # Melakukan request ke URL iHospital
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        response = requests.get(url_target, headers=headers, timeout=5)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            teks_mentah = soup.get_text()
+        else:
+            teks_mentah = f"Error HTTP: {response.status_code}"
+    except Exception as e:
+        teks_mentah = f"Gagal mengakses link (Kemungkinan diblokir login internal RS): {e}"
+
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
     
+    # Parser regex untuk membaca teks dari halaman web
     m_nama = re.search(r"Nama\s+Lengkap[\s:]*\n?\s*:?\s*\n?\s*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
     if m_nama:
         baris_nama = [b.strip() for b in m_nama.group(1).split('\n') if b.strip() and b.strip() != ':']
@@ -132,7 +148,7 @@ def ekstrak_data_dari_teks(teks_mentah):
                 hasil["list_obat"].append({"nama": nama_obat, "signa": signa, "jumlah": jumlah, "status": "det orig"})
     except: pass
             
-    return hasil
+    return hasil, teks_mentah
 
 # ==========================================
 # 4. SIDEBAR & JAM 3D LIVE
@@ -178,25 +194,31 @@ with st.sidebar:
 # ==========================================
 st.title("✨ Sistem Cerdas Copy Resep & Etiket")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 Tempel Teks Resep", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
+tab1, tab2, tab3, tab4 = st.tabs(["🚀 Masukkan Link URL iHospital", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
 with tab1:
     if st.session_state.get('show_success_tab1'):
         st.success("✅ Sukses Disimpan! Data duplikat otomatis diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Buka halaman cetak resep RS, tekan `Ctrl+A` lalu `Ctrl+C`, kemudian **`Ctrl+V` (Paste)** ke dalam kotak di bawah ini.")
+    st.info("💡 **Petunjuk:** Tempel tautan (URL) iHospital resep pasien ke dalam kolom di bawah ini.")
     
-    # Kotak Teks Instan Pengganti Upload
-    teks_input_user = st.text_area("📋 Tempel (Paste) Teks Halaman Resep di Sini:", height=150, placeholder="Tekan Ctrl+V di sini...")
+    # Input Berupa URL
+    url_input = st.text_input("🔗 Masukkan Link URL iHospital:", placeholder="https://ihospital.rsimasyithoh.com/...")
     
-    if teks_input_user.strip():
-        if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_text') != teks_input_user:
-            st.session_state['hasil_ekstrak'] = ekstrak_data_dari_teks(teks_input_user)
-            st.session_state['last_text'] = teks_input_user
+    if url_input.strip():
+        if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_url') != url_input:
+            hasil, raw_text = ambil_data_dari_url(url_input)
+            st.session_state['hasil_ekstrak'] = hasil
+            st.session_state['last_url'] = url_input
+            st.session_state['raw_text'] = raw_text
         
         hasil = st.session_state['hasil_ekstrak']
         
+        # Peringatan jika link gagal dibaca karena proteksi login internal RS
+        if "Gagal mengakses link" in st.session_state.get('raw_text', '') or not hasil["nama"]:
+            st.warning("⚠️ **Perhatian:** Sistem mendeteksi link memerlukan izin login internal server RS sehingga tidak dapat ditarik otomatis. Jika data kosong, silakan gunakan metode **Copy-Paste Teks** seperti sebelumnya atau lengkapi manual di bawah.")
+
         st.subheader("👤 Identitas Pasien")
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -214,9 +236,9 @@ with tab1:
         st.subheader("💊 Rincian Obat")
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
-        if 'list_obat_aktif' not in st.session_state or st.session_state.get('last_text_obat') != teks_input_user:
+        if 'list_obat_aktif' not in st.session_state or st.session_state.get('last_url_obat') != url_input:
             st.session_state['list_obat_aktif'] = list(hasil["list_obat"])
-            st.session_state['last_text_obat'] = teks_input_user
+            st.session_state['last_url_obat'] = url_input
 
         obat_final_list = []
         indices_to_remove = []
@@ -388,7 +410,7 @@ with tab3:
             components.html(js_print_thermal, height=100)
 
     else:
-        st.info("⚠️ Kosong. Silakan tempel teks resep di tab 'Tempel Teks Resep' terlebih dahulu.")
+        st.info("⚠️ Kosong. Silakan masukkan link URL resep di tab 'Masukkan Link URL iHospital' terlebih dahulu.")
 
 with tab4:
     if not df_data.empty:
