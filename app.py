@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import os
@@ -9,6 +9,14 @@ import re
 import streamlit.components.v1 as components
 import json
 import time
+
+# ==========================================
+# 0. PENGATURAN ZONA WAKTU (WIB - REALTIME)
+# ==========================================
+WIB = timezone(timedelta(hours=7))
+
+def get_waktu_sekarang():
+    return datetime.now(WIB)
 
 # ==========================================
 # 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT 3D)
@@ -22,13 +30,6 @@ st.markdown("""
     
     .stButton>button { background: linear-gradient(135deg, #4F46E5, #3B82F6); color: white !important; border-radius: 12px; padding: 12px 24px; font-weight: 800; border: none; box-shadow: 0 6px 0 #312E81, 0 15px 20px rgba(0,0,0,0.2); transition: all 0.1s; text-transform: uppercase; letter-spacing: 1px; }
     .stButton>button:active, .stButton>button:focus { transform: translateY(6px); box-shadow: 0 0 0 #312E81, 0 5px 5px rgba(0,0,0,0.2); outline: none; }
-    
-    .btn-delete>button { background: linear-gradient(135deg, #EF4444, #F87171) !important; box-shadow: 0 6px 0 #991B1B, 0 10px 15px rgba(239,68,68,0.3) !important; margin-top: 15px !important; }
-    .btn-delete>button:active { transform: translateY(6px); box-shadow: 0 0 0 #991B1B, 0 3px 3px rgba(239,68,68,0.3) !important; }
-    
-    .chat-bubble { background: linear-gradient(145deg, #ffffff, #f0f0f0); border-radius: 0px 20px 20px 20px; padding: 18px 25px; margin-bottom: 12px; box-shadow: 5px 5px 15px rgba(0,0,0,0.1), -5px -5px 15px rgba(255,255,255,0.05); border-left: 6px solid #0EA5E9; color: #0F172A !important; }
-    .bubble-header { font-size: 17px; font-weight: 900; color: #0369A1 !important; margin-bottom: 8px; }
-    .bubble-body { font-size: 15px; font-weight: 600; color: #334155 !important; }
     
     .status-box { padding: 15px; border-radius: 15px; margin-bottom: 20px; font-weight: 800; text-align: center; background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
     .status-success { border-left: 5px solid #10B981; }
@@ -60,7 +61,7 @@ if 'db_lokal' not in st.session_state: st.session_state['db_lokal'] = []
 
 def simpan_data(data_dict):
     row_data = [
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), data_dict["Nama Pasien"], data_dict["No. RM"], data_dict["Tanggal Resep Asli"],
+        get_waktu_sekarang().strftime("%Y-%m-%d %H:%M:%S"), data_dict["Nama Pasien"], data_dict["No. RM"], data_dict["Tanggal Resep Asli"],
         data_dict["Nama Dokter"], data_dict["No. Kartu"], data_dict["SEP"], data_dict["Jumlah Iter"], data_dict["Daftar Obat"]
     ]
     
@@ -92,7 +93,7 @@ def ambil_semua_data():
 # 3. FUNGSI PARSER KETAT (EKSTRAKSI TEKS CERDAS)
 # ==========================================
 def parse_teks_resep(teks_mentah):
-    hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "iter": 2, "list_obat": []}
+    hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": get_waktu_sekarang(), "dokter": "", "iter": 2, "list_obat": []}
     
     m_nama = re.search(r"Nama Lengkap[\s:]*([A-Za-z\'\.\s]+?)(?:Alergi|Tgl|No\.)", teks_mentah, re.IGNORECASE)
     if m_nama: hasil["nama"] = m_nama.group(1).replace(':', '').strip()
@@ -109,7 +110,7 @@ def parse_teks_resep(teks_mentah):
     if m_tgl:
         hari, bulan_str, tahun = int(m_tgl.group(1)), m_tgl.group(2).lower(), int(m_tgl.group(3))
         bulan_map = {'jan':1, 'feb':2, 'mar':3, 'apr':4, 'mei':5, 'jun':6, 'jul':7, 'agu':8, 'sep':9, 'okt':10, 'nov':11, 'des':12}
-        try: hasil["tgl_resep"] = datetime(tahun, next((v for k, v in bulan_map.items() if bulan_str.startswith(k)), datetime.now().month), hari)
+        try: hasil["tgl_resep"] = datetime(tahun, next((v for k, v in bulan_map.items() if bulan_str.startswith(k)), get_waktu_sekarang().month), hari)
         except: pass
 
     m_dok = re.search(r"(dr\.[^\n\r]+)", teks_mentah, re.IGNORECASE)
@@ -140,7 +141,7 @@ def parse_teks_resep(teks_mentah):
         elif waktu and not signa: signa = waktu
             
         if nama_obat and "TELAAH" not in nama_obat.upper():
-            hasil["list_obat"].append({"nama": nama_obat, "signa": signa, "jumlah": jumlah, "status": "det orig"})
+            hasil["list_obat"].append({"Nama Obat": nama_obat, "Aturan Pakai": signa, "Jumlah": jumlah, "Status": "det orig", "Hapus": False})
             
     return hasil
 
@@ -172,7 +173,7 @@ with st.sidebar:
     """, height=120)
     
     df_data = ambil_semua_data()
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = get_waktu_sekarang().strftime("%Y-%m-%d")
     total_hari_ini = len(df_data[df_data['Tanggal Input'].astype(str).str.startswith(today_str)]) if not df_data.empty and "Tanggal Input" in df_data.columns else 0
     
     st.metric(label="Resep Masuk Hari Ini", value=f"{total_hari_ini} Resep", delta="Aktif")
@@ -193,19 +194,17 @@ with tab1:
 
     st.info("💡 **Petunjuk:** Buka resep di web iHospital, tekan `Ctrl+A` lalu `Ctrl+C`. Setelah itu, paste (`Ctrl+V`) teksnya di kotak bawah ini lalu tekan tombol Proses.")
     
-    # Membungkus Text Area dalam Form agar teks 'Press Ctrl+Enter' tidak muncul
     with st.form("form_paste_teks"):
         teks_input_user = st.text_area("📋 Paste Teks Halaman Resep di Sini:", height=150, placeholder="Tekan Ctrl+V di sini...")
         btn_proses = st.form_submit_button("🚀 Proses Data Resep")
     
-    # Logika Loading 0 - 100% saat tombol diklik
     if btn_proses:
         if teks_input_user.strip():
             progress_text = "Memulai pemindaian... 0%"
             my_bar = st.progress(0, text=progress_text)
             
             for percent_complete in range(100):
-                time.sleep(0.015)  # Animasi loading (1,5 detik)
+                time.sleep(0.015) 
                 if percent_complete == 30: progress_text = f"Menganalisis Identitas Pasien... {percent_complete}%"
                 elif percent_complete == 60: progress_text = f"Mengekstrak Rincian Obat... {percent_complete}%"
                 elif percent_complete == 90: progress_text = f"Memvalidasi Data... {percent_complete}%"
@@ -214,16 +213,14 @@ with tab1:
                 my_bar.progress(percent_complete + 1, text=progress_text)
             
             time.sleep(0.3)
-            my_bar.empty() # Menghapus baris loading setelah selesai
+            my_bar.empty() 
             
-            # Simpan hasil ke Session State
             st.session_state['hasil_ekstrak_teks'] = parse_teks_resep(teks_input_user)
-            st.session_state['list_obat_teks'] = list(st.session_state['hasil_ekstrak_teks']["list_obat"])
+            st.session_state['df_obat_teks'] = pd.DataFrame(st.session_state['hasil_ekstrak_teks']["list_obat"])
         else:
             st.warning("⚠️ Kotak teks masih kosong, silakan paste teks resep terlebih dahulu!")
 
-    # Tampilkan UI jika data berhasil diproses
-    if 'hasil_ekstrak_teks' in st.session_state and st.session_state.get('list_obat_teks') is not None:
+    if 'hasil_ekstrak_teks' in st.session_state and st.session_state.get('df_obat_teks') is not None:
         hasil = st.session_state['hasil_ekstrak_teks']
 
         st.subheader("👤 Identitas Pasien")
@@ -244,44 +241,51 @@ with tab1:
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
         
-        indices_to_remove = []
-        for idx, item in enumerate(st.session_state['list_obat_teks']):
-            col_buble, col_aksi = st.columns([7, 3])
-            with col_buble:
-                st.markdown(f"""
-                <div class="chat-bubble">
-                    <div class="bubble-header">💊 R/ {item['nama']}</div>
-                    <div class="bubble-body">📋 Aturan Pakai: <strong>{item['signa']}</strong> &nbsp;&nbsp;|&nbsp;&nbsp; 📦 Jumlah: <strong>{item['jumlah']}</strong></div>
-                </div>
-                """, unsafe_allow_html=True)
-            with col_aksi:
-                st.write("") 
-                item['status'] = st.selectbox(f"Status:", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_t_{idx}")
-                st.markdown('<div class="btn-delete">', unsafe_allow_html=True)
-                if st.button("🗑️ Hapus", key=f"del_t_{idx}"): indices_to_remove.append(idx)
-                st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-
-        if indices_to_remove:
-            for i in sorted(indices_to_remove, reverse=True): st.session_state['list_obat_teks'].pop(i)
-            st.rerun()
+        # Tabel Interaktif Daftar Obat
+        if not st.session_state['df_obat_teks'].empty:
+            edited_df_obat = st.data_editor(
+                st.session_state['df_obat_teks'],
+                column_config={
+                    "Hapus": st.column_config.CheckboxColumn("🗑️ Hapus", default=False),
+                    "Status": st.column_config.SelectboxColumn("Status", options=opsi_status)
+                },
+                disabled=["Nama Obat", "Aturan Pakai", "Jumlah"],
+                hide_index=True,
+                use_container_width=True
+            )
             
-        st.markdown("---")
-        if st.button("💾 Simpan Data & Siapkan Cetak", key="btn_save_teks"):
-            with st.spinner("💾 Menyimpan ke Database..."):
-                teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_teks']])
-                simpan_data({
-                    "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
-                    "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
-                    "Jumlah Iter": iter_p, "Daftar Obat": teks_db
-                })
-                st.session_state['data_cetak'] = {
-                    "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
-                    "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
-                    "obat_list": st.session_state['list_obat_teks'], "tgl_copy": datetime.now().strftime("%d %B %Y")
-                }
-                st.session_state['show_success_tab1'] = True
+            # Perbarui DataFrame di Session State jika ada perubahan status/centang hapus
+            st.session_state['df_obat_teks'] = edited_df_obat
+            
+            # Tombol untuk mengeksekusi penghapusan obat yang dicentang
+            if st.button("🗑️ Hapus Obat Terpilih"):
+                df_obat_sisa = edited_df_obat[edited_df_obat['Hapus'] == False].drop(columns=['Hapus']).copy()
+                df_obat_sisa['Hapus'] = False 
+                st.session_state['df_obat_teks'] = df_obat_sisa
                 st.rerun()
+                
+            st.markdown("---")
+            if st.button("💾 Simpan Data & Siapkan Cetak", key="btn_save_teks"):
+                with st.spinner("💾 Menyimpan ke Database..."):
+                    # Buat list of dictionaries untuk proses cetak, abaikan yang dicentang hapus
+                    obat_siap_cetak = edited_df_obat[edited_df_obat['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
+                    
+                    teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak])
+                    
+                    simpan_data({
+                        "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
+                        "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
+                        "Jumlah Iter": iter_p, "Daftar Obat": teks_db
+                    })
+                    st.session_state['data_cetak'] = {
+                        "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
+                        "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
+                        "obat_list": obat_siap_cetak, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")
+                    }
+                    st.session_state['show_success_tab1'] = True
+                    st.rerun()
+        else:
+            st.warning("Daftar obat kosong.")
 
 # --- TAB 2: UPLOAD PDF ---
 with tab2:
@@ -301,7 +305,7 @@ with tab2:
             my_bar2.empty()
             
             st.session_state['hasil_ekstrak_pdf'] = ekstrak_data_pdf(file_upload)
-            st.session_state['list_obat_pdf'] = list(st.session_state['hasil_ekstrak_pdf']["list_obat"])
+            st.session_state['df_obat_pdf'] = pd.DataFrame(st.session_state['hasil_ekstrak_pdf']["list_obat"])
             st.session_state['last_file_pdf'] = file_upload.name
         
         hasil = st.session_state['hasil_ekstrak_pdf']
@@ -324,44 +328,48 @@ with tab2:
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
 
-        indices_to_remove2 = []
-        for idx, item in enumerate(st.session_state['list_obat_pdf']):
-            col_buble, col_aksi = st.columns([7, 3])
-            with col_buble:
-                st.markdown(f"""
-                <div class="chat-bubble">
-                    <div class="bubble-header">💊 R/ {item['nama']}</div>
-                    <div class="bubble-body">📋 Aturan Pakai: <strong>{item['signa']}</strong> &nbsp;&nbsp;|&nbsp;&nbsp; 📦 Jumlah: <strong>{item['jumlah']}</strong></div>
-                </div>
-                """, unsafe_allow_html=True)
-            with col_aksi:
-                st.write("") 
-                item['status'] = st.selectbox(f"Status:", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_p_{idx}")
-                st.markdown('<div class="btn-delete">', unsafe_allow_html=True)
-                if st.button("🗑️ Hapus", key=f"del_p_{idx}"): indices_to_remove2.append(idx)
-                st.markdown('</div>', unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-
-        if indices_to_remove2:
-            for i in sorted(indices_to_remove2, reverse=True): st.session_state['list_obat_pdf'].pop(i)
-            st.rerun()
+        # Tabel Interaktif Daftar Obat (PDF)
+        if not st.session_state['df_obat_pdf'].empty:
+            edited_df_obat2 = st.data_editor(
+                st.session_state['df_obat_pdf'],
+                column_config={
+                    "Hapus": st.column_config.CheckboxColumn("🗑️ Hapus", default=False),
+                    "Status": st.column_config.SelectboxColumn("Status", options=opsi_status)
+                },
+                disabled=["Nama Obat", "Aturan Pakai", "Jumlah"],
+                hide_index=True,
+                use_container_width=True
+            )
             
-        st.markdown("---")
-        if st.button("💾 Simpan Data PDF & Siapkan Cetak", key="btn_save_pdf"):
-            with st.spinner("💾 Menyimpan ke Database..."):
-                teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_pdf']])
-                simpan_data({
-                    "Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), 
-                    "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, 
-                    "Jumlah Iter": iter_p2, "Daftar Obat": teks_db
-                })
-                st.session_state['data_cetak'] = {
-                    "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), 
-                    "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2, 
-                    "obat_list": st.session_state['list_obat_pdf'], "tgl_copy": datetime.now().strftime("%d %B %Y")
-                }
-                st.session_state['show_success_tab2'] = True
+            st.session_state['df_obat_pdf'] = edited_df_obat2
+            
+            if st.button("🗑️ Hapus Obat Terpilih (PDF)"):
+                df_obat_sisa2 = edited_df_obat2[edited_df_obat2['Hapus'] == False].drop(columns=['Hapus']).copy()
+                df_obat_sisa2['Hapus'] = False
+                st.session_state['df_obat_pdf'] = df_obat_sisa2
                 st.rerun()
+                
+            st.markdown("---")
+            if st.button("💾 Simpan Data PDF & Siapkan Cetak", key="btn_save_pdf"):
+                with st.spinner("💾 Menyimpan ke Database..."):
+                    obat_siap_cetak2 = edited_df_obat2[edited_df_obat2['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
+                    
+                    teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak2])
+                    
+                    simpan_data({
+                        "Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), 
+                        "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, 
+                        "Jumlah Iter": iter_p2, "Daftar Obat": teks_db
+                    })
+                    st.session_state['data_cetak'] = {
+                        "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), 
+                        "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2, 
+                        "obat_list": obat_siap_cetak2, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")
+                    }
+                    st.session_state['show_success_tab2'] = True
+                    st.rerun()
+        else:
+            st.warning("Daftar obat PDF kosong.")
 
 # --- TAB 3: INPUT MANUAL ---
 with tab3:
@@ -509,8 +517,8 @@ with tab5:
         
         df_data['Tanggal Input'] = pd.to_datetime(df_data['Tanggal Input'], errors='coerce')
         col_tgl1, col_tgl2 = st.columns(2)
-        with col_tgl1: start_date = st.date_input("Dari Tanggal", datetime.now().date().replace(day=1))
-        with col_tgl2: end_date = st.date_input("Sampai Tanggal", datetime.now().date())
+        with col_tgl1: start_date = st.date_input("Dari Tanggal", get_waktu_sekarang().date().replace(day=1))
+        with col_tgl2: end_date = st.date_input("Sampai Tanggal", get_waktu_sekarang().date())
         
         mask = (df_data['Tanggal Input'].dt.date >= start_date) & (df_data['Tanggal Input'].dt.date <= end_date)
         df_laporan = df_data.loc[mask].copy()
@@ -556,7 +564,7 @@ with tab5:
                             ]
                         
                     st.success(f"✅ Berhasil menghapus {len(baris_terpilih)} data!")
-                    time.sleep(1) # Jeda sebentar agar user bisa membaca notifikasi sukses
+                    time.sleep(1) 
                     st.rerun()
 
             csv = df_laporan.drop(columns=['Hapus']).to_csv(index=False).encode('utf-8')
