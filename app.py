@@ -8,9 +8,11 @@ import fitz
 import re
 import streamlit.components.v1 as components
 import json
+import requests
+from bs4 import BeautifulSoup
 
 # ==========================================
-# 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT)
+# 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT 3D)
 # ==========================================
 st.set_page_config(page_title="Sistem Copy Resep 3D", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
@@ -36,7 +38,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KONEKSI GOOGLE SHEETS & ANTI-DUPLIKAT
+# 2. KONEKSI GOOGLE SHEETS & SISTEM HAPUS DUPLIKAT
 # ==========================================
 def get_gsheets_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -63,21 +65,23 @@ def simpan_data(data_dict):
         data_dict["Nama Dokter"], data_dict["No. Kartu"], data_dict["SEP"], data_dict["Jumlah Iter"], data_dict["Daftar Obat"]
     ]
     
+    # SISTEM DETEKSI & HAPUS DATA GANDA OTOMATIS
     if sheet: 
         try:
             records = sheet.get_all_records()
             for i, rec in enumerate(records):
+                # Jika No. RM dan Tanggal Resep Asli sama persis, hapus data lama di Google Sheets
                 if str(rec.get("No. RM", "")).strip() == str(data_dict["No. RM"]).strip() and \
-                   str(rec.get("Nama Pasien", "")).strip().lower() == str(data_dict["Nama Pasien"]).strip().lower() and \
                    str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
                     sheet.delete_row(i + 2)
                     break 
         except: pass
         sheet.append_row(row_data)
     else: 
+        # Hapus duplikat untuk penyimpanan lokal jika ada
         st.session_state['db_lokal'] = [
             r for r in st.session_state['db_lokal'] 
-            if not (str(r[2]).strip() == str(data_dict["No. RM"]).strip() and str(r[1]).strip().lower() == str(data_dict["Nama Pasien"]).strip().lower() and str(r[3]).strip() == str(data_dict["Tanggal Resep Asli"]).strip())
+            if not (str(r[2]).strip() == str(data_dict["No. RM"]).strip() and str(r[3]).strip() == str(data_dict["Tanggal Resep Asli"]).strip())
         ]
         st.session_state['db_lokal'].append(row_data)
 
@@ -87,10 +91,9 @@ def ambil_semua_data():
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI EKSTRAKSI PDF (AKURASI 100%)
+# 3. FUNGSI PARSER (URL iHOSPITAL & PDF)
 # ==========================================
-def ekstrak_data_pdf(file_pdf):
-    teks_mentah = "".join(page.get_text() for page in fitz.open(stream=file_pdf.read(), filetype="pdf"))
+def parse_teks_resep(teks_mentah):
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
     
     m_nama = re.search(r"Nama\s+Lengkap[\s:]*\n?\s*:?\s*\n?\s*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
@@ -134,6 +137,33 @@ def ekstrak_data_pdf(file_pdf):
     except: pass
             
     return hasil
+
+def ambil_data_dari_url(url_target):
+    teks_mentah = ""
+    try:
+        session = requests.Session()
+        if "ihospital_username" in st.secrets and "ihospital_password" in st.secrets:
+            login_url = "https://ihospital.rsimasyithoh.com/index.php?r=site/login"
+            payload = {
+                "LoginForm[username]": st.secrets["ihospital_username"],
+                "LoginForm[password]": st.secrets["ihospital_password"]
+            }
+            session.post(login_url, data=payload, timeout=5)
+            
+        response = session.get(url_target, timeout=5)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            teks_mentah = soup.get_text()
+        else:
+            teks_mentah = f"Error HTTP: {response.status_code}"
+    except Exception as e:
+        teks_mentah = f"Gagal mengambil URL: {e}"
+
+    return parse_teks_resep(teks_mentah), teks_mentah
+
+def ekstrak_data_pdf(file_pdf):
+    teks_mentah = "".join(page.get_text() for page in fitz.open(stream=file_pdf.read(), filetype="pdf"))
+    return parse_teks_resep(teks_mentah)
 
 # ==========================================
 # 4. SIDEBAR & JAM 3D LIVE
@@ -179,49 +209,52 @@ with st.sidebar:
 # ==========================================
 st.title("✨ Sistem Cerdas Copy Resep & Etiket")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 Upload PDF Resep", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
+tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔗 Ambil via Link iHospital", "📂 Upload PDF Resep", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
+# --- TAB 1: LINK iHOSPITAL ---
 with tab1:
     if st.session_state.get('show_success_tab1'):
-        st.success("✅ Sukses Disimpan! Data duplikat otomatis ditimpa. Buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan! Data ganda (No. RM & Tanggal sama) otomatis diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Unggah dokumen PDF resep dari sistem RS.")
+    st.info("💡 **Petunjuk:** Tempel tautan URL iHospital resep pasien di bawah ini.")
+    url_input = st.text_input("🔗 Link URL iHospital:", placeholder="https://ihospital.rsimasyithoh.com/...")
     
-    file_upload = st.file_uploader("📂 Unggah File PDF Resep", type=['pdf'])
-    
-    if file_upload:
-        if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_file') != file_upload.name:
-            st.session_state['hasil_ekstrak'] = ekstrak_data_pdf(file_upload)
-            st.session_state['last_file'] = file_upload.name
+    if url_input.strip():
+        if 'hasil_ekstrak_url' not in st.session_state or st.session_state.get('last_url') != url_input:
+            hasil, raw_text = ambil_data_dari_url(url_input)
+            st.session_state['hasil_ekstrak_url'] = hasil
+            st.session_state['last_url'] = url_input
+            st.session_state['raw_text_url'] = raw_text
         
-        hasil = st.session_state['hasil_ekstrak']
+        hasil = st.session_state['hasil_ekstrak_url']
         
+        if not hasil["nama"] or "Gagal" in st.session_state.get('raw_text_url', ''):
+            st.warning("⚠️ Data otomatis dari link memerlukan izin login aktif. Silakan lengkapi manual di bawah jika kosong.")
+
         st.subheader("👤 Identitas Pasien")
         c1, c2, c3 = st.columns(3)
         with c1:
-            nama_p = st.text_input("Nama Pasien", value=hasil["nama"])
-            rm_p = st.text_input("No. RM", value=hasil["rm"])
+            nama_p = st.text_input("Nama Pasien", value=hasil["nama"], key="p_nama_url")
+            rm_p = st.text_input("No. RM", value=hasil["rm"], key="p_rm_url")
         with c2:
-            kartu_p = st.text_input("No. Kartu BPJS", value=hasil["no_kartu"])
-            sep_p = st.text_input("No. SEP", value=hasil["sep"])
+            kartu_p = st.text_input("No. Kartu BPJS", value=hasil["no_kartu"], key="p_kartu_url")
+            sep_p = st.text_input("No. SEP", value=hasil["sep"], key="p_sep_url")
         with c3:
-            tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"])
-            dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"])
-            iter_p = st.number_input("Jumlah Iter", min_value=0, value=2)
+            tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_url")
+            dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_url")
+            iter_p = st.number_input("Jumlah Iter", min_value=0, value=2, key="p_iter_url")
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat")
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
-        if 'list_obat_aktif' not in st.session_state or st.session_state.get('last_file_obat') != file_upload.name:
-            st.session_state['list_obat_aktif'] = list(hasil["list_obat"])
-            st.session_state['last_file_obat'] = file_upload.name
+        if 'list_obat_url' not in st.session_state or st.session_state.get('last_url_obat') != url_input:
+            st.session_state['list_obat_url'] = list(hasil["list_obat"])
+            st.session_state['last_url_obat'] = url_input
 
-        obat_final_list = []
         indices_to_remove = []
-
-        for idx, item in enumerate(st.session_state['list_obat_aktif']):
+        for idx, item in enumerate(st.session_state['list_obat_url']):
             col_buble, col_aksi = st.columns([7, 3])
             with col_buble:
                 st.markdown(f"""
@@ -232,21 +265,19 @@ with tab1:
                 """, unsafe_allow_html=True)
             with col_aksi:
                 st.write("") 
-                item['status'] = st.selectbox(f"Ubah Status:", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_{idx}")
+                item['status'] = st.selectbox(f"Status:", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_u_{idx}")
                 st.markdown('<div class="btn-delete">', unsafe_allow_html=True)
-                if st.button("🗑️ Hapus", key=f"del_{idx}"): indices_to_remove.append(idx)
+                if st.button("🗑️ Hapus", key=f"del_u_{idx}"): indices_to_remove.append(idx)
                 st.markdown('</div>', unsafe_allow_html=True)
-                
-            obat_final_list.append(item)
             st.markdown("<br>", unsafe_allow_html=True)
 
         if indices_to_remove:
-            for i in sorted(indices_to_remove, reverse=True): st.session_state['list_obat_aktif'].pop(i)
+            for i in sorted(indices_to_remove, reverse=True): st.session_state['list_obat_url'].pop(i)
             st.rerun()
             
         st.markdown("---")
-        if st.button("💾 Simpan Data & Siapkan Cetak"):
-            teks_db = " | ".join([f"{o['nama']} ({o['signa']} {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_aktif']])
+        if st.button("💾 Simpan Data Link & Siapkan Cetak", key="btn_save_url"):
+            teks_db = " | ".join([f"{o['nama']} ({o['signa']} {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_url']])
             simpan_data({
                 "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
                 "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
@@ -255,15 +286,91 @@ with tab1:
             st.session_state['data_cetak'] = {
                 "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
                 "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
-                "obat_list": st.session_state['list_obat_aktif'], "tgl_copy": datetime.now().strftime("%d %B %Y")
+                "obat_list": st.session_state['list_obat_url'], "tgl_copy": datetime.now().strftime("%d %B %Y")
             }
             st.session_state['show_success_tab1'] = True
             st.rerun()
 
+# --- TAB 2: UPLOAD PDF ---
 with tab2:
     if st.session_state.get('show_success_tab2'):
-        st.success("✅ Sukses Disimpan (Manual)! Data ganda otomatis ditimpa.")
+        st.success("✅ Sukses Disimpan dari PDF! Data duplikat otomatis ditimpa. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab2'] = False
+
+    st.info("💡 **Petunjuk:** Jalur alternatif unggah dokumen PDF resep.")
+    file_upload = st.file_uploader("📂 Unggah File PDF Resep", type=['pdf'], key="uploader_pdf")
+    
+    if file_upload:
+        if 'hasil_ekstrak_pdf' not in st.session_state or st.session_state.get('last_file_pdf') != file_upload.name:
+            st.session_state['hasil_ekstrak_pdf'] = ekstrak_data_pdf(file_upload)
+            st.session_state['last_file_pdf'] = file_upload.name
+        
+        hasil = st.session_state['hasil_ekstrak_pdf']
+        
+        st.subheader("👤 Identitas Pasien (PDF)")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            nama_p2 = st.text_input("Nama Pasien", value=hasil["nama"], key="p_nama_pdf")
+            rm_p2 = st.text_input("No. RM", value=hasil["rm"], key="p_rm_pdf")
+        with c2:
+            kartu_p2 = st.text_input("No. Kartu BPJS", value=hasil["no_kartu"], key="p_kartu_pdf")
+            sep_p2 = st.text_input("No. SEP", value=hasil["sep"], key="p_sep_pdf")
+        with c3:
+            tgl_r2 = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_pdf")
+            dokter_p2 = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_pdf")
+            iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=2, key="p_iter_pdf")
+            
+        st.markdown("---")
+        st.subheader("💊 Rincian Obat (PDF)")
+        
+        opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
+        if 'list_obat_pdf' not in st.session_state or st.session_state.get('last_file_obat_pdf') != file_upload.name:
+            st.session_state['list_obat_pdf'] = list(hasil["list_obat"])
+            st.session_state['last_file_obat_pdf'] = file_upload.name
+
+        indices_to_remove2 = []
+        for idx, item in enumerate(st.session_state['list_obat_pdf']):
+            col_buble, col_aksi = st.columns([7, 3])
+            with col_buble:
+                st.markdown(f"""
+                <div class="chat-bubble">
+                    <div class="bubble-header">💊 R/ {item['nama']}</div>
+                    <div class="bubble-body">📋 Aturan Pakai: <strong>{item['signa']}</strong> &nbsp;&nbsp;|&nbsp;&nbsp; 📦 Jumlah: <strong>{item['jumlah']}</strong></div>
+                </div>
+                """, unsafe_allow_html=True)
+            with col_aksi:
+                st.write("") 
+                item['status'] = st.selectbox(f"Status:", opsi_status, index=opsi_status.index(item.get('status', 'det orig')), key=f"stat_p_{idx}")
+                st.markdown('<div class="btn-delete">', unsafe_allow_html=True)
+                if st.button("🗑️ Hapus", key=f"del_p_{idx}"): indices_to_remove2.append(idx)
+                st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+
+        if indices_to_remove2:
+            for i in sorted(indices_to_remove2, reverse=True): st.session_state['list_obat_pdf'].pop(i)
+            st.rerun()
+            
+        st.markdown("---")
+        if st.button("💾 Simpan Data PDF & Siapkan Cetak", key="btn_save_pdf"):
+            teks_db = " | ".join([f"{o['nama']} ({o['signa']} {o['jumlah']}) [{o['status']}]" for o in st.session_state['list_obat_pdf']])
+            simpan_data({
+                "Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), 
+                "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, 
+                "Jumlah Iter": iter_p2, "Daftar Obat": teks_db
+            })
+            st.session_state['data_cetak'] = {
+                "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), 
+                "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2, 
+                "obat_list": st.session_state['list_obat_pdf'], "tgl_copy": datetime.now().strftime("%d %B %Y")
+            }
+            st.session_state['show_success_tab2'] = True
+            st.rerun()
+
+# --- TAB 3: INPUT MANUAL ---
+with tab3:
+    if st.session_state.get('show_success_tab3'):
+        st.success("✅ Sukses Disimpan (Manual)! Data ganda otomatis ditimpa.")
+        st.session_state['show_success_tab3'] = False
         
     st.info("✍️ Input manual jika diperlukan.")
     with st.form("form_manual", clear_on_submit=True):
@@ -283,12 +390,13 @@ with tab2:
         if st.form_submit_button("💾 Simpan Data Resep (Manual)"):
             if m_nama and m_obat:
                 simpan_data({"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')})
-                st.session_state['show_success_tab2'] = True
+                st.session_state['show_success_tab3'] = True
                 st.rerun()
             else:
                 st.error("Nama dan Daftar Obat wajib diisi!")
 
-with tab3:
+# --- TAB 4: PUSAT CETAK ---
+with tab4:
     if 'data_cetak' in st.session_state:
         d = st.session_state['data_cetak']
         
@@ -388,9 +496,10 @@ with tab3:
             components.html(js_print_thermal, height=100)
 
     else:
-        st.info("⚠️ Kosong. Silakan unggah PDF resep di tab 'Upload PDF Resep' terlebih dahulu.")
+        st.info("⚠️ Kosong. Silakan proses data melalui tab Link iHospital atau Upload PDF terlebih dahulu.")
 
-with tab4:
+# --- TAB 5: LAPORAN & PENCARIAN ---
+with tab5:
     if not df_data.empty:
         st.subheader("🔍 Cari Riwayat Pasien")
         pencarian = st.text_input("Masukkan Nama Pasien atau No. RM:")
