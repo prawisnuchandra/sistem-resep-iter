@@ -70,7 +70,7 @@ def simpan_data(data_dict):
         try:
             records = sheet.get_all_records()
             for i, rec in enumerate(records):
-                # Jika No. RM dan Tanggal Resep Asli sama persis, hapus data lama di Google Sheets
+                # Jika No. RM dan Tanggal Resep Asli sama persis, hapus data lama di G-Sheets
                 if str(rec.get("No. RM", "")).strip() == str(data_dict["No. RM"]).strip() and \
                    str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
                     sheet.delete_row(i + 2)
@@ -78,7 +78,7 @@ def simpan_data(data_dict):
         except: pass
         sheet.append_row(row_data)
     else: 
-        # Hapus duplikat untuk penyimpanan lokal jika ada
+        # Hapus duplikat untuk penyimpanan lokal
         st.session_state['db_lokal'] = [
             r for r in st.session_state['db_lokal'] 
             if not (str(r[2]).strip() == str(data_dict["No. RM"]).strip() and str(r[3]).strip() == str(data_dict["Tanggal Resep Asli"]).strip())
@@ -91,7 +91,7 @@ def ambil_semua_data():
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI PARSER (URL iHOSPITAL & PDF)
+# 3. FUNGSI PARSER (URL iHOSPITAL DENGAN LOGIN & PDF)
 # ==========================================
 def parse_teks_resep(teks_mentah):
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
@@ -142,14 +142,22 @@ def ambil_data_dari_url(url_target):
     teks_mentah = ""
     try:
         session = requests.Session()
-        if "ihospital_username" in st.secrets and "ihospital_password" in st.secrets:
-            login_url = "https://ihospital.rsimasyithoh.com/index.php?r=site/login"
-            payload = {
-                "LoginForm[username]": st.secrets["ihospital_username"],
-                "LoginForm[password]": st.secrets["ihospital_password"]
-            }
-            session.post(login_url, data=payload, timeout=5)
-            
+        
+        # MENGGUNAKAN DATA LOGIN OTOMATIS
+        # Akan mencoba mengambil dari secrets terlebih dahulu, jika tidak ada akan menggunakan kredensial yang Anda berikan
+        user_login = st.secrets.get("ihospital_username", "wisnuchandra")
+        pass_login = st.secrets.get("ihospital_password", "Rsimp-20241")
+        
+        login_url = "https://ihospital.rsimasyithoh.com/index.php?r=site/login"
+        payload = {
+            "LoginForm[username]": user_login,
+            "LoginForm[password]": pass_login
+        }
+        
+        # Proses eksekusi login ke sistem RS
+        session.post(login_url, data=payload, timeout=5)
+        
+        # Ambil data dari link resep
         response = session.get(url_target, timeout=5)
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, 'html.parser')
@@ -214,10 +222,10 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔗 Ambil via Link iHospital", "📂 U
 # --- TAB 1: LINK iHOSPITAL ---
 with tab1:
     if st.session_state.get('show_success_tab1'):
-        st.success("✅ Sukses Disimpan! Data ganda (No. RM & Tanggal sama) otomatis diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan! Data ganda otomatis dihapus dan diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Tempel tautan URL iHospital resep pasien di bawah ini.")
+    st.info("💡 **Petunjuk:** Tempel tautan URL iHospital resep pasien di bawah ini. Sistem akan otomatis login.")
     url_input = st.text_input("🔗 Link URL iHospital:", placeholder="https://ihospital.rsimasyithoh.com/...")
     
     if url_input.strip():
@@ -230,7 +238,7 @@ with tab1:
         hasil = st.session_state['hasil_ekstrak_url']
         
         if not hasil["nama"] or "Gagal" in st.session_state.get('raw_text_url', ''):
-            st.warning("⚠️ Data otomatis dari link memerlukan izin login aktif. Silakan lengkapi manual di bawah jika kosong.")
+            st.warning("⚠️ Data otomatis dari link gagal terbaca. Periksa koneksi internet atau gunakan tab **Upload PDF Resep**.")
 
         st.subheader("👤 Identitas Pasien")
         c1, c2, c3 = st.columns(3)
@@ -294,7 +302,7 @@ with tab1:
 # --- TAB 2: UPLOAD PDF ---
 with tab2:
     if st.session_state.get('show_success_tab2'):
-        st.success("✅ Sukses Disimpan dari PDF! Data duplikat otomatis ditimpa. Buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Disimpan dari PDF! Data ganda otomatis dihapus dan diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab2'] = False
 
     st.info("💡 **Petunjuk:** Jalur alternatif unggah dokumen PDF resep.")
@@ -372,7 +380,7 @@ with tab3:
         st.success("✅ Sukses Disimpan (Manual)! Data ganda otomatis ditimpa.")
         st.session_state['show_success_tab3'] = False
         
-    st.info("✍️ Input manual jika diperlukan.")
+    st.info("✍️ Input data secara manual jika diperlukan.")
     with st.form("form_manual", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
         with c1:
