@@ -8,8 +8,13 @@ import fitz
 import re
 import streamlit.components.v1 as components
 import json
-import requests
-from bs4 import BeautifulSoup
+import pytesseract
+from PIL import Image
+import sys
+
+# Konfigurasi Tesseract lokal Windows (Abaikan jika di Cloud)
+if sys.platform.startswith('win'):
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # ==========================================
 # 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT)
@@ -89,53 +94,49 @@ def ambil_semua_data():
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
 # ==========================================
-# 3. FUNGSI SCRAPER URL iHOSPITAL
+# 3. FUNGSI OCR MULTI-FOTO (GABUNGAN FOTO TERPOTONG)
 # ==========================================
-def ambil_data_dari_url(url_target):
-    teks_mentah = ""
-    try:
-        # Melakukan request ke URL iHospital
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-        response = requests.get(url_target, headers=headers, timeout=5)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            teks_mentah = soup.get_text()
-        else:
-            teks_mentah = f"Error HTTP: {response.status_code}"
-    except Exception as e:
-        teks_mentah = f"Gagal mengakses link (Kemungkinan diblokir login internal RS): {e}"
-
+def ekstrak_data_multi_foto(uploaded_files):
+    teks_gabungan = ""
+    
+    # Gabungkan teks dari semua foto yang di-upload sekaligus
+    for file in uploaded_files:
+        try:
+            img = Image.open(file)
+            teks_gabungan += "\n" + pytesseract.image_to_string(img)
+        except Exception as e:
+            st.error(f"Gagal membaca salah satu foto: {e}")
+            
     hasil = {"nama": "", "rm": "", "no_kartu": "", "sep": "", "tgl_resep": datetime.now(), "dokter": "", "list_obat": []}
     
-    # Parser regex untuk membaca teks dari halaman web
-    m_nama = re.search(r"Nama\s+Lengkap[\s:]*\n?\s*:?\s*\n?\s*([A-Za-z\s\'\.]+)", teks_mentah, re.IGNORECASE)
+    m_nama = re.search(r"Nama\s+Lengkap[\s:]*\n?\s*:?\s*\n?\s*([A-Za-z\s\'\.]+)", teks_gabungan, re.IGNORECASE)
     if m_nama:
         baris_nama = [b.strip() for b in m_nama.group(1).split('\n') if b.strip() and b.strip() != ':']
         if baris_nama: hasil["nama"] = baris_nama[0]
 
-    m_rm = re.search(r"RM\s*[\s:]*\n?\s*:?\s*\n?\s*([a-zA-Z0-9]+)", teks_mentah, re.IGNORECASE)
+    m_rm = re.search(r"RM\s*[\s:]*\n?\s*:?\s*\n?\s*([a-zA-Z0-9]+)", teks_gabungan, re.IGNORECASE)
     if m_rm: hasil["rm"] = m_rm.group(1).strip()
 
-    m_kartu = re.search(r"(\d{13})\s*/\s*([A-Za-z0-9]{15,25})", teks_mentah)
+    m_kartu = re.search(r"(\d{13})\s*/\s*([A-Za-z0-9]{15,25})", teks_gabungan)
     if m_kartu:
         hasil["no_kartu"] = m_kartu.group(1).strip(); hasil["sep"] = m_kartu.group(2).strip()
     else:
-        m_kartu_alt = re.search(r"Kartu/SEP[\s:]*\n?\s*:?\s*\n?\s*([\d]+)\s*/\s*([A-Za-z0-9]+)", teks_mentah, re.IGNORECASE)
+        m_kartu_alt = re.search(r"Kartu/SEP[\s:]*\n?\s*:?\s*\n?\s*([\d]+)\s*/\s*([A-Za-z0-9]+)", teks_gabungan, re.IGNORECASE)
         if m_kartu_alt: hasil["no_kartu"] = m_kartu_alt.group(1).strip(); hasil["sep"] = m_kartu_alt.group(2).strip()
 
-    m_tgl = re.search(r"Tanggal[\s:]*\n?\s*:?\s*\n?\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", teks_mentah, re.IGNORECASE)
+    m_tgl = re.search(r"Tanggal[\s:]*\n?\s*:?\s*\n?\s*(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", teks_gabungan, re.IGNORECASE)
     if m_tgl:
         hari, bulan_str, tahun = int(m_tgl.group(1)), m_tgl.group(2).lower(), int(m_tgl.group(3))
         bulan_map = {'jan':1, 'feb':2, 'mar':3, 'apr':4, 'mei':5, 'jun':6, 'jul':7, 'agu':8, 'sep':9, 'okt':10, 'nov':11, 'des':12}
         try: hasil["tgl_resep"] = datetime(tahun, next((v for k, v in bulan_map.items() if bulan_str.startswith(k)), datetime.now().month), hari)
         except: pass
 
-    m_dok = re.search(r"\(?\s*(dr\.\s*[A-Za-z\.\s\,]+(?:\,\s*[A-Za-z\.\s]+)*)\s*\)?", teks_mentah, re.IGNORECASE)
+    m_dok = re.search(r"\(?\s*(dr\.\s*[A-Za-z\.\s\,]+(?:\,\s*[A-Za-z\.\s]+)*)\s*\)?", teks_gabungan, re.IGNORECASE)
     if m_dok: hasil["dokter"] = m_dok.group(1).strip()
     
     kata_terlarang = ['TELAAH', 'Tepat', 'Dupikasi', 'Interaksi', 'Kontraindikasi', 'Klinis', 'Farmasetis', 'Petugas', 'Jam', 'Tanggal', 'Identitas', 'Nama']
     try:
-        for bagian in teks_mentah.split('R/')[1:]:
+        for bagian in teks_gabungan.split('R/')[1:]:
             baris = [b.strip() for b in bagian.strip().split('\n') if b.strip()]
             if not baris: continue
             nama_obat = baris[0].replace('//', '').strip()
@@ -148,7 +149,7 @@ def ambil_data_dari_url(url_target):
                 hasil["list_obat"].append({"nama": nama_obat, "signa": signa, "jumlah": jumlah, "status": "det orig"})
     except: pass
             
-    return hasil, teks_mentah
+    return hasil
 
 # ==========================================
 # 4. SIDEBAR & JAM 3D LIVE
@@ -194,31 +195,26 @@ with st.sidebar:
 # ==========================================
 st.title("✨ Sistem Cerdas Copy Resep & Etiket")
 
-tab1, tab2, tab3, tab4 = st.tabs(["🚀 Masukkan Link URL iHospital", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
+tab1, tab2, tab3, tab4 = st.tabs(["🚀 Upload Multi-Foto (Terpotong)", "✍️ Input Manual", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
 with tab1:
     if st.session_state.get('show_success_tab1'):
         st.success("✅ Sukses Disimpan! Data duplikat otomatis diperbarui. Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
-    st.info("💡 **Petunjuk:** Tempel tautan (URL) iHospital resep pasien ke dalam kolom di bawah ini.")
+    st.info("💡 **Petunjuk:** Anda bisa memilih atau mengunggah **beberapa foto sekaligus** (misalnya 3 foto bagian resep yang terpotong). Sistem akan menggabungkannya otomatis.")
     
-    # Input Berupa URL
-    url_input = st.text_input("🔗 Masukkan Link URL iHospital:", placeholder="https://ihospital.rsimasyithoh.com/...")
+    # Widget Multi-Upload Gambar
+    uploaded_files = st.file_uploader("📂 Pilih atau Tarik Beberapa Foto Resep", type=['png', 'jpg', 'jpeg'], accept_multiple_files=True)
     
-    if url_input.strip():
-        if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_url') != url_input:
-            hasil, raw_text = ambil_data_dari_url(url_input)
-            st.session_state['hasil_ekstrak'] = hasil
-            st.session_state['last_url'] = url_input
-            st.session_state['raw_text'] = raw_text
+    if uploaded_files:
+        file_names_key = "-".join([f.name for f in uploaded_files])
+        if 'hasil_ekstrak' not in st.session_state or st.session_state.get('last_files') != file_names_key:
+            st.session_state['hasil_ekstrak'] = ekstrak_data_multi_foto(uploaded_files)
+            st.session_state['last_files'] = file_names_key
         
         hasil = st.session_state['hasil_ekstrak']
         
-        # Peringatan jika link gagal dibaca karena proteksi login internal RS
-        if "Gagal mengakses link" in st.session_state.get('raw_text', '') or not hasil["nama"]:
-            st.warning("⚠️ **Perhatian:** Sistem mendeteksi link memerlukan izin login internal server RS sehingga tidak dapat ditarik otomatis. Jika data kosong, silakan gunakan metode **Copy-Paste Teks** seperti sebelumnya atau lengkapi manual di bawah.")
-
         st.subheader("👤 Identitas Pasien")
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -236,9 +232,9 @@ with tab1:
         st.subheader("💊 Rincian Obat")
         
         opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
-        if 'list_obat_aktif' not in st.session_state or st.session_state.get('last_url_obat') != url_input:
+        if 'list_obat_aktif' not in st.session_state or st.session_state.get('last_files_obat') != file_names_key:
             st.session_state['list_obat_aktif'] = list(hasil["list_obat"])
-            st.session_state['last_url_obat'] = url_input
+            st.session_state['last_files_obat'] = file_names_key
 
         obat_final_list = []
         indices_to_remove = []
@@ -410,7 +406,7 @@ with tab3:
             components.html(js_print_thermal, height=100)
 
     else:
-        st.info("⚠️ Kosong. Silakan masukkan link URL resep di tab 'Masukkan Link URL iHospital' terlebih dahulu.")
+        st.info("⚠️ Kosong. Silakan pilih beberapa foto resep di tab 'Upload Multi-Foto' terlebih dahulu.")
 
 with tab4:
     if not df_data.empty:
