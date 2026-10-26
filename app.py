@@ -69,9 +69,13 @@ def simpan_data(data_dict):
         try:
             records = sheet.get_all_records()
             for i, rec in enumerate(records):
-                rm_record = str(rec.get("No. RM", rec.get("RM", ""))).strip()
+                # Deteksi RM cerdas
+                rm_key = next((k for k in rec.keys() if 'rm' in k.lower()), 'RM')
+                tgl_key = next((k for k in rec.keys() if 'tanggal' in k.lower() or 'tgl' in k.lower() and 'input' not in k.lower()), 'Tanggal Resep Asli')
+                
+                rm_record = str(rec.get(rm_key, "")).strip()
                 if rm_record == str(data_dict["No. RM"]).strip() and \
-                   str(rec.get("Tanggal Resep Asli", "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
+                   str(rec.get(tgl_key, "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
                     try: sheet.delete_rows(i + 2)
                     except AttributeError: sheet.delete_row(i + 2)
                     break 
@@ -89,31 +93,58 @@ def ambil_semua_data():
     kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
-# Pelacak Kolom Cerdas
-def get_col(df, possible_names, default_idx):
-    for name in possible_names:
-        if name in df.columns:
-            return name
-    return df.columns[default_idx] if len(df.columns) > default_idx else df.columns[-1]
+# Pencari Kolom Pintar & Adaptif
+def get_col(df, keywords, fallback_idx=-1):
+    for col in df.columns:
+        if any(k.lower() in str(col).lower() for k in keywords):
+            return col
+    if fallback_idx >= 0 and len(df.columns) > fallback_idx:
+        return df.columns[fallback_idx]
+    return df.columns[-1] if not df.empty else None
 
+# Parser Super-Fleksibel (Anti Kosong)
 def parse_db_obat(db_string):
     obat_list = []
-    items = db_string.split(" | ")
+    if not db_string or pd.isna(db_string) or str(db_string).strip() == "": 
+        return obat_list
+        
+    items = str(db_string).split(" | ")
     for item in items:
-        match = re.match(r"(.*?)\s*\((.*?)\s*No\.\s*(.*?)\)\s*\[(.*?)\]", item)
-        if match:
-            nama = match.group(1).strip()
-            signa = match.group(2).strip()
-            jumlah = match.group(3).strip()
-            status_lama = match.group(4).strip()
+        if not item.strip(): continue
+        
+        nama, signa, jumlah, status_lama = item.strip(), "", "", "🟢 det orig"
+        
+        # 1. Tarik Status
+        m_status = re.search(r'\[(.*?)\]$', nama)
+        if m_status:
+            status_lama = m_status.group(1).strip()
+            nama = nama[:m_status.start()].strip()
+            
+        # 2. Tarik Signa dan Jumlah (Toleransi Format Ekstra)
+        m_detail = re.search(r'\((.*?)\s+No\.\s*(.*?)\)$', nama, re.IGNORECASE)
+        if m_detail:
+            signa = m_detail.group(1).strip()
+            jumlah = m_detail.group(2).strip()
+            nama = nama[:m_detail.start()].strip()
+        else:
+            # Jika tidak ada "No." di dalam kurung
+            m_paren = re.search(r'\((.*?)\)$', nama)
+            if m_paren:
+                signa = m_paren.group(1).strip()
+                nama = nama[:m_paren.start()].strip()
 
-            status_baru = "🟢 det orig"
-            if "det orig" in status_lama: status_baru = "🔵 det iter 1x"
-            elif "iter 1x" in status_lama: status_baru = "🟣 det iter 2x"
-            elif "iter 2x" in status_lama: status_baru = "🟤 det iter 3x"
-            elif "det" in status_lama and "iter" not in status_lama: status_baru = "🔵 det iter 1x"
+        # 3. Kenaikan Status Otomatis
+        status_baru = "🟢 det orig"
+        sl = status_lama.lower()
+        if "det orig" in sl: status_baru = "🔵 det iter 1x"
+        elif "iter 1x" in sl: status_baru = "🟣 det iter 2x"
+        elif "iter 2x" in sl: status_baru = "🟤 det iter 3x"
+        elif "ne det" in sl: status_baru = "🔴 ne det"
+        elif "det" in sl and "iter" not in sl: status_baru = "🔵 det iter 1x"
+        else: status_baru = status_lama
 
-            obat_list.append({"Nama Obat": nama, "Aturan Pakai": signa, "Jumlah": jumlah, "Status": status_baru, "Hapus": False})
+        obat_list.append({"Nama Obat": nama, "Aturan Pakai": signa, "Jumlah": jumlah, "Status": status_baru, "Hapus": False})
+        
     return obat_list
 
 # ==========================================
@@ -208,8 +239,9 @@ with st.sidebar:
     """, height=120)
     
     df_data = ambil_semua_data()
+    col_tgl_input = get_col(df_data, ['Tanggal Input', 'Tgl Input'], 0) if not df_data.empty else None
     today_str = get_waktu_sekarang().strftime("%Y-%m-%d")
-    total_hari_ini = len(df_data[df_data['Tanggal Input'].astype(str).str.startswith(today_str)]) if not df_data.empty and "Tanggal Input" in df_data.columns else 0
+    total_hari_ini = len(df_data[df_data[col_tgl_input].astype(str).str.startswith(today_str)]) if not df_data.empty and col_tgl_input else 0
     
     st.metric(label="Resep Masuk Hari Ini", value=f"{total_hari_ini} Resep", delta="Aktif")
     st.markdown(f'<div class="status-box status-{"success" if sheet else "warning"}">{"✅" if sheet else "⚠️"} {connection_status}</div>', unsafe_allow_html=True)
@@ -286,7 +318,6 @@ with tab1:
             if st.button("💾 Simpan Data & Siapkan Cetak", key="btn_save_teks"):
                 save_bar = st.progress(0, text="Menyiapkan data...")
                 time.sleep(0.3)
-                save_bar.progress(50, text="Menyimpan ke Database...")
                 
                 obat_siap_cetak = edited_df_obat[edited_df_obat['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
                 teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak])
@@ -423,16 +454,16 @@ with tab4:
         rm_cari = st.text_input("🔍 Masukkan No. RM untuk mencari riwayat resep:", key="cari_rm_iter")
         if rm_cari:
             try:
-                col_rm = get_col(df_data, ['RM', 'No. RM', 'No RM'], 2)
-                df_match = df_data[df_data[col_rm].astype(str).str.contains(rm_cari, case=False)]
+                col_rm_db = get_col(df_data, ['rm', 'rekam'])
+                df_match = df_data[df_data[col_rm_db].astype(str).str.contains(rm_cari, case=False)]
                 
                 if not df_match.empty:
-                    col_tgl = get_col(df_match, ['Tanggal Resep Asli', 'Tgl Resep Asli', 'Tanggal'], 3)
-                    col_nama = get_col(df_match, ['Nama Pasien', 'Nama Lengkap', 'Nama'], 1)
-                    col_dok = get_col(df_match, ['Nama Dokter', 'Dokter', 'dr'], 4)
-                    col_obat = get_col(df_match, ['Daftar Obat', 'Obat', 'Rincian'], 8)
+                    col_tgl_db = get_col(df_match, ['tanggal', 'tgl', 'date'])
+                    col_nama_db = get_col(df_match, ['pasien', 'nama'])
+                    col_dok_db = get_col(df_match, ['dokter', 'dr'])
+                    col_obat_db = get_col(df_match, ['obat', 'daftar', 'rincian'])
                     
-                    opsi_riwayat = df_match[col_tgl].astype(str) + " - " + df_match[col_nama].astype(str) + " (Dokter: " + df_match[col_dok].astype(str) + ")"
+                    opsi_riwayat = df_match[col_tgl_db].astype(str) + " - " + df_match[col_nama_db].astype(str) + " (Dokter: " + df_match[col_dok_db].astype(str) + ")"
                     pilihan_riwayat = st.selectbox("📂 Pilih Riwayat Resep Sebelumnya:", opsi_riwayat.tolist())
                     
                     idx_terpilih = opsi_riwayat.tolist().index(pilihan_riwayat)
@@ -440,11 +471,11 @@ with tab4:
                     
                     if st.button("🔽 Tarik & Proses Data Iter Ini"):
                         st.session_state['hasil_ekstrak_iter'] = row_terpilih.to_dict()
-                        st.session_state['df_obat_iter'] = pd.DataFrame(parse_db_obat(str(row_terpilih[col_obat])))
+                        st.session_state['df_obat_iter'] = pd.DataFrame(parse_db_obat(str(row_terpilih[col_obat_db])))
                 else:
                     st.error("Data pasien tidak ditemukan.")
             except Exception as e:
-                st.error("Terjadi masalah dalam membaca kolom database. Mohon periksa struktur tabel Google Sheets Anda.")
+                st.error(f"Terjadi masalah dalam membaca kolom database: {e}")
                 
     if 'hasil_ekstrak_iter' in st.session_state and 'df_obat_iter' in st.session_state:
         if st.session_state.get('show_success_tab4'):
@@ -452,26 +483,36 @@ with tab4:
             st.session_state['show_success_tab4'] = False
             
         hasil_it = st.session_state['hasil_ekstrak_iter']
+        
+        # Penarikan identitas pasin ultra-aman (Tidak tertukar)
+        nm_k = get_col(df_data, ['pasien', 'nama'])
+        rm_k = get_col(df_data, ['rm', 'rekam'])
+        kr_k = get_col(df_data, ['kartu', 'bpjs'])
+        sp_k = get_col(df_data, ['sep'])
+        tg_k = get_col(df_data, ['tanggal', 'tgl'])
+        dk_k = get_col(df_data, ['dokter', 'dr'])
+        it_k = get_col(df_data, ['iter', 'jumlah'])
+        
         st.markdown("---")
         st.subheader("👤 Identitas Pasien (Iterasi)")
         c1, c2, c3 = st.columns(3)
         with c1:
-            nama_p3 = st.text_input("Nama Pasien", value=hasil_it.get(get_col(df_data, ['Nama Pasien'], 1), ""), key="p_nama_it")
-            rm_p3 = st.text_input("No. RM", value=hasil_it.get(get_col(df_data, ['RM', 'No. RM'], 2), ""), key="p_rm_it")
+            nama_p3 = st.text_input("Nama Pasien", value=hasil_it.get(nm_k, ""), key="p_nama_it")
+            rm_p3 = st.text_input("No. RM", value=hasil_it.get(rm_k, ""), key="p_rm_it")
         with c2:
-            kartu_p3 = st.text_input("No. Kartu BPJS", value=hasil_it.get(get_col(df_data, ['No. Kartu'], 5), ""), key="p_kartu_it")
-            sep_p3 = st.text_input("No. SEP", value=hasil_it.get(get_col(df_data, ['SEP'], 6), ""), key="p_sep_it")
+            kartu_p3 = st.text_input("No. Kartu BPJS", value=hasil_it.get(kr_k, ""), key="p_kartu_it")
+            sep_p3 = st.text_input("No. SEP", value=hasil_it.get(sp_k, ""), key="p_sep_it")
         with c3:
             try:
-                tgl_str = str(hasil_it.get(get_col(df_data, ['Tanggal Resep Asli'], 3), get_waktu_sekarang().strftime("%Y-%m-%d")))
+                tgl_str = str(hasil_it.get(tg_k, get_waktu_sekarang().strftime("%Y-%m-%d")))
                 tgl_lama = datetime.strptime(tgl_str, "%Y-%m-%d").date()
             except:
                 tgl_lama = get_waktu_sekarang().date()
                 
             tgl_r3 = st.date_input("Tanggal Resep Asli", value=tgl_lama, key="p_tgl_it")
-            dokter_p3 = st.text_input("Nama Dokter", value=hasil_it.get(get_col(df_data, ['Nama Dokter', 'Dokter'], 4), ""), key="p_dok_it")
+            dokter_p3 = st.text_input("Nama Dokter", value=hasil_it.get(dk_k, ""), key="p_dok_it")
             
-            try: iter_val = int(hasil_it.get(get_col(df_data, ['Jumlah Iter'], 7), 2))
+            try: iter_val = int(hasil_it.get(it_k, 2))
             except: iter_val = 2
             iter_p3 = st.number_input("Jumlah Iter", min_value=0, value=iter_val, key="p_iter_it")
             
@@ -513,6 +554,8 @@ with tab4:
                 }
                 st.session_state['show_success_tab4'] = True
                 st.rerun()
+        else: 
+            st.warning("⚠️ Data obat kosong. Pastikan kolom Daftar Obat di database terisi dengan benar.")
 
 # --- TAB 5: PUSAT CETAK ---
 with tab5:
@@ -679,12 +722,14 @@ with tab6:
         st.markdown("---")
         st.subheader("📊 Laporan Bulanan (Unduh & Kelola Data)")
         
-        df_data['Tanggal Input'] = pd.to_datetime(df_data['Tanggal Input'], errors='coerce')
+        col_tgl_input = get_col(df_data, ['Tanggal Input', 'Tgl Input'], 0)
+        df_data[col_tgl_input] = pd.to_datetime(df_data[col_tgl_input], errors='coerce')
+        
         col_tgl1, col_tgl2 = st.columns(2)
         with col_tgl1: start_date = st.date_input("Dari Tanggal", get_waktu_sekarang().date().replace(day=1))
         with col_tgl2: end_date = st.date_input("Sampai Tanggal", get_waktu_sekarang().date())
         
-        mask = (df_data['Tanggal Input'].dt.date >= start_date) & (df_data['Tanggal Input'].dt.date <= end_date)
+        mask = (df_data[col_tgl_input].dt.date >= start_date) & (df_data[col_tgl_input].dt.date <= end_date)
         df_laporan = df_data.loc[mask].copy()
         
         st.write(f"Total data ditemukan: **{len(df_laporan)} resep**")
@@ -707,15 +752,22 @@ with tab6:
                 if st.button("🗑️ Hapus Data Terpilih", type="primary"):
                     del_bar = st.progress(0, text="Menghapus data dari server...")
                     time.sleep(0.3)
+                    
+                    rm_col_name = get_col(df_data, ['rm', 'rekam'])
+                    
                     if sheet:
                         all_records = sheet.get_all_records()
                         for i in range(len(all_records) - 1, -1, -1):
                             rec = all_records[i]
+                            
+                            rec_rm_key = next((k for k in rec.keys() if 'rm' in k.lower()), rm_col_name)
+                            rec_tgl_key = next((k for k in rec.keys() if 'tanggal' in k.lower() and 'input' in k.lower()), col_tgl_input)
+                            
                             for _, row_del in baris_terpilih.iterrows():
-                                rm_del = str(row_del.get(get_col(df_data, ['RM', 'No. RM'], 2), ''))
-                                rm_rec = str(rec.get(get_col(df_data, ['RM', 'No. RM'], 2), ''))
-                                tgl_del = str(row_del.get('Tanggal Input', ''))
-                                tgl_rec = str(rec.get('Tanggal Input', ''))
+                                rm_del = str(row_del.get(rm_col_name, ''))
+                                rm_rec = str(rec.get(rec_rm_key, ''))
+                                tgl_del = str(row_del.get(col_tgl_input, ''))
+                                tgl_rec = str(rec.get(rec_tgl_key, ''))
                                 
                                 if tgl_rec == tgl_del and rm_rec == rm_del:
                                     try: sheet.delete_rows(i + 2)
@@ -725,8 +777,8 @@ with tab6:
                         st.session_state['db_lokal'] = [
                             r for r in st.session_state['db_lokal']
                             if not any(
-                                (str(r[0]) == str(row_del.get('Tanggal Input', '')) and 
-                                 str(r[2]) == str(row_del.get(get_col(df_data, ['RM', 'No. RM'], 2), ''))) 
+                                (str(r[0]) == str(row_del.get(col_tgl_input, '')) and 
+                                 str(r[2]) == str(row_del.get(rm_col_name, ''))) 
                                 for _, row_del in baris_terpilih.iterrows()
                             )
                         ]
