@@ -141,7 +141,8 @@ def parse_teks_resep(teks_mentah):
         elif waktu and not signa: signa = waktu
             
         if nama_obat and "TELAAH" not in nama_obat.upper():
-            hasil["list_obat"].append({"Nama Obat": nama_obat, "Aturan Pakai": signa, "Jumlah": jumlah, "Status": "det orig", "Hapus": False})
+            # Status bawaan diubah menjadi versi Emoji Warna
+            hasil["list_obat"].append({"Nama Obat": nama_obat, "Aturan Pakai": signa, "Jumlah": jumlah, "Status": "🟢 det orig", "Hapus": False})
             
     return hasil
 
@@ -204,15 +205,12 @@ with tab1:
             my_bar = st.progress(0, text=progress_text)
             
             for percent_complete in range(100):
-                time.sleep(0.015) 
+                time.sleep(0.01) 
                 if percent_complete == 30: progress_text = f"Menganalisis Identitas Pasien... {percent_complete}%"
                 elif percent_complete == 60: progress_text = f"Mengekstrak Rincian Obat... {percent_complete}%"
                 elif percent_complete == 90: progress_text = f"Memvalidasi Data... {percent_complete}%"
-                elif percent_complete == 99: progress_text = f"Selesai! {percent_complete}%"
                 
                 my_bar.progress(percent_complete + 1, text=progress_text)
-            
-            time.sleep(0.3)
             my_bar.empty() 
             
             st.session_state['hasil_ekstrak_teks'] = parse_teks_resep(teks_input_user)
@@ -220,7 +218,7 @@ with tab1:
         else:
             st.warning("⚠️ Kotak teks masih kosong, silakan paste teks resep terlebih dahulu!")
 
-    if 'hasil_ekstrak_teks' in st.session_state and st.session_state.get('df_obat_teks') is not None:
+    if 'hasil_ekstrak_teks' in st.session_state and 'df_obat_teks' in st.session_state:
         hasil = st.session_state['hasil_ekstrak_teks']
 
         st.subheader("👤 Identitas Pasien")
@@ -239,10 +237,11 @@ with tab1:
         st.markdown("---")
         st.subheader("💊 Rincian Obat")
         
-        opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
+        # Opsi Warna Dropdown
+        opsi_status = ["🟢 det orig", "🟡 det", "🔴 ne det", "🔵 det iter 1x", "🟣 det iter 2x", "🟤 det iter 3x"]
         
-        # Tabel Interaktif Daftar Obat
         if not st.session_state['df_obat_teks'].empty:
+            # Penambahan 'key' krusial agar checkbox tidak bug saat diklik
             edited_df_obat = st.data_editor(
                 st.session_state['df_obat_teks'],
                 column_config={
@@ -251,39 +250,47 @@ with tab1:
                 },
                 disabled=["Nama Obat", "Aturan Pakai", "Jumlah"],
                 hide_index=True,
-                use_container_width=True
+                use_container_width=True,
+                key="editor_obat_teks" 
             )
             
-            # Perbarui DataFrame di Session State jika ada perubahan status/centang hapus
-            st.session_state['df_obat_teks'] = edited_df_obat
-            
-            # Tombol untuk mengeksekusi penghapusan obat yang dicentang
             if st.button("🗑️ Hapus Obat Terpilih"):
-                df_obat_sisa = edited_df_obat[edited_df_obat['Hapus'] == False].drop(columns=['Hapus']).copy()
-                df_obat_sisa['Hapus'] = False 
-                st.session_state['df_obat_teks'] = df_obat_sisa
+                # Simpan ulang state tanpa baris yang dicentang
+                st.session_state['df_obat_teks'] = edited_df_obat[edited_df_obat['Hapus'] == False].copy()
+                st.session_state['df_obat_teks']['Hapus'] = False 
                 st.rerun()
                 
             st.markdown("---")
             if st.button("💾 Simpan Data & Siapkan Cetak", key="btn_save_teks"):
-                with st.spinner("💾 Menyimpan ke Database..."):
-                    # Buat list of dictionaries untuk proses cetak, abaikan yang dicentang hapus
-                    obat_siap_cetak = edited_df_obat[edited_df_obat['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
-                    
-                    teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak])
-                    
-                    simpan_data({
-                        "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
-                        "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
-                        "Jumlah Iter": iter_p, "Daftar Obat": teks_db
-                    })
-                    st.session_state['data_cetak'] = {
-                        "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
-                        "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
-                        "obat_list": obat_siap_cetak, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")
-                    }
-                    st.session_state['show_success_tab1'] = True
-                    st.rerun()
+                # Animasi Progress Bar untuk Simpan Data
+                save_bar = st.progress(0, text="Menyiapkan data...")
+                time.sleep(0.3)
+                save_bar.progress(40, text="Menghubungkan ke Database...")
+                
+                obat_siap_cetak = edited_df_obat[edited_df_obat['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
+                
+                teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak])
+                
+                simpan_data({
+                    "Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), 
+                    "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, 
+                    "Jumlah Iter": iter_p, "Daftar Obat": teks_db
+                })
+                
+                save_bar.progress(80, text="Membuat format cetak...")
+                time.sleep(0.3)
+                
+                st.session_state['data_cetak'] = {
+                    "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), 
+                    "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, 
+                    "obat_list": obat_siap_cetak, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")
+                }
+                
+                save_bar.progress(100, text="Selesai!")
+                time.sleep(0.4)
+                save_bar.empty()
+                st.session_state['show_success_tab1'] = True
+                st.rerun()
         else:
             st.warning("Daftar obat kosong.")
 
@@ -326,9 +333,8 @@ with tab2:
         st.markdown("---")
         st.subheader("💊 Rincian Obat (PDF)")
         
-        opsi_status = ["det orig", "det", "ne det", "det iter 1x", "det iter 2x", "det iter 3x"]
+        opsi_status = ["🟢 det orig", "🟡 det", "🔴 ne det", "🔵 det iter 1x", "🟣 det iter 2x", "🟤 det iter 3x"]
 
-        # Tabel Interaktif Daftar Obat (PDF)
         if not st.session_state['df_obat_pdf'].empty:
             edited_df_obat2 = st.data_editor(
                 st.session_state['df_obat_pdf'],
@@ -338,36 +344,42 @@ with tab2:
                 },
                 disabled=["Nama Obat", "Aturan Pakai", "Jumlah"],
                 hide_index=True,
-                use_container_width=True
+                use_container_width=True,
+                key="editor_obat_pdf"
             )
             
-            st.session_state['df_obat_pdf'] = edited_df_obat2
-            
             if st.button("🗑️ Hapus Obat Terpilih (PDF)"):
-                df_obat_sisa2 = edited_df_obat2[edited_df_obat2['Hapus'] == False].drop(columns=['Hapus']).copy()
-                df_obat_sisa2['Hapus'] = False
-                st.session_state['df_obat_pdf'] = df_obat_sisa2
+                st.session_state['df_obat_pdf'] = edited_df_obat2[edited_df_obat2['Hapus'] == False].copy()
+                st.session_state['df_obat_pdf']['Hapus'] = False
                 st.rerun()
                 
             st.markdown("---")
             if st.button("💾 Simpan Data PDF & Siapkan Cetak", key="btn_save_pdf"):
-                with st.spinner("💾 Menyimpan ke Database..."):
-                    obat_siap_cetak2 = edited_df_obat2[edited_df_obat2['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
-                    
-                    teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak2])
-                    
-                    simpan_data({
-                        "Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), 
-                        "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, 
-                        "Jumlah Iter": iter_p2, "Daftar Obat": teks_db
-                    })
-                    st.session_state['data_cetak'] = {
-                        "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), 
-                        "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2, 
-                        "obat_list": obat_siap_cetak2, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")
-                    }
-                    st.session_state['show_success_tab2'] = True
-                    st.rerun()
+                save_bar2 = st.progress(0, text="Menyiapkan data PDF...")
+                time.sleep(0.3)
+                save_bar2.progress(50, text="Menyimpan ke Database...")
+                
+                obat_siap_cetak2 = edited_df_obat2[edited_df_obat2['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
+                
+                teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak2])
+                
+                simpan_data({
+                    "Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), 
+                    "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, 
+                    "Jumlah Iter": iter_p2, "Daftar Obat": teks_db
+                })
+                
+                save_bar2.progress(100, text="Selesai!")
+                time.sleep(0.4)
+                save_bar2.empty()
+                
+                st.session_state['data_cetak'] = {
+                    "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), 
+                    "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2, 
+                    "obat_list": obat_siap_cetak2, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")
+                }
+                st.session_state['show_success_tab2'] = True
+                st.rerun()
         else:
             st.warning("Daftar obat PDF kosong.")
 
@@ -391,12 +403,18 @@ with tab3:
             m_iter = st.number_input("Jumlah Iter", min_value=0)
         m_obat = st.text_area("Daftar Obat (Tiap baris tekan Enter):", height=150)
         
-        if st.form_submit_button("💾 Simpan Data Resep (Manual)"):
-            with st.spinner("💾 Menyimpan ke Database..."):
-                if m_nama and m_obat:
-                    simpan_data({"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')})
-                    st.session_state['show_success_tab3'] = True
-                    st.rerun()
+        btn_manual = st.form_submit_button("💾 Simpan Data Resep (Manual)")
+        
+        if btn_manual:
+            save_bar3 = st.progress(0, text="Menyimpan data manual...")
+            time.sleep(0.5)
+            if m_nama and m_obat:
+                simpan_data({"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')})
+                save_bar3.progress(100, text="Selesai!")
+                time.sleep(0.4)
+                save_bar3.empty()
+                st.session_state['show_success_tab3'] = True
+                st.rerun()
 
 # --- TAB 4: PUSAT CETAK ---
 with tab4:
@@ -457,21 +475,67 @@ with tab4:
 
         st.markdown("---")
         
-        st.subheader("🏷️ 2. Cetak Etiket (Thermal 7x5 cm)")
+        st.subheader("🏷️ 2. Cetak Etiket (Kustomisasi Sebelum Print)")
+        st.info("💡 **Tips:** Anda bebas mengubah **Aturan Pakai** (Misal: tambah 'Sesudah Makan') atau **Nama Obat** di tabel bawah ini. Perubahan ini **hanya untuk print etiket** dan tidak merusak data resep di database!")
+        
+        # Buat DataFrame khusus untuk diedit sebelum cetak etiket
+        if 'df_etiket_edit' not in st.session_state or st.session_state.get('last_etiket_pasien') != d['nama']:
+            df_kustom = pd.DataFrame(d['obat_list'])
+            df_kustom['Cetak'] = True # Opsi untuk memilih obat mana yg di print
+            st.session_state['df_etiket_edit'] = df_kustom[['Cetak', 'nama', 'signa']]
+            st.session_state['last_etiket_pasien'] = d['nama']
+            
+        edited_etiket = st.data_editor(
+            st.session_state['df_etiket_edit'],
+            column_config={
+                "Cetak": st.column_config.CheckboxColumn("🖨️ Cetak?", default=True),
+                "nama": "Nama Obat (Bisa Diedit)",
+                "signa": "Aturan Pakai (Bisa Diedit)"
+            },
+            hide_index=True,
+            use_container_width=True,
+            key="editor_etiket_thermal"
+        )
+        
+        # Simpan state terbaru setiap ada ketikan
+        st.session_state['df_etiket_edit'] = edited_etiket
+        
+        # Logika pembagian format tanggal persis seperti gambar (Atas: Tanggal, Bawah: Bulan Tahun)
+        tgl_split = d['tgl_copy'].split(" ")
+        tgl_hari = tgl_split[0] if len(tgl_split) > 0 else ""
+        tgl_bln_thn = f"{tgl_split[1].upper()} {tgl_split[2]}" if len(tgl_split) > 2 else ""
+
         html_etiket_pages = ""
-        for o in d['obat_list']:
+        # Hanya loop obat yang dicentang 'Cetak'
+        for _, row in edited_etiket[edited_etiket['Cetak'] == True].iterrows():
             html_etiket_pages += f"""
             <div class="etiket-page">
-                <div class="e-kop">RSI MASYITHOH BANGIL<br><span style="font-weight: normal; font-size: 7px;">Telefarmasi (WA) 0343-741018</span></div>
-                <div class="e-line"></div>
+                <div class="e-header">
+                    <div style="flex: 4; text-align: center; color: #555;">
+                        <span style="font-size: 11px; font-weight: 900;">RUMAH SAKIT ISLAM MASYITHOH</span><br>
+                        <span style="font-size: 9px;">Jl. A.Yani No 6-7 Bangil 67153</span><br>
+                        <span style="font-size: 10px; font-weight: bold;">Telefarmasi (WA) 0343-741018</span>
+                    </div>
+                </div>
                 <table class="e-meta">
-                    <tr><td width="30%">Nama</td><td>: <strong>{d['nama']}</strong></td></tr>
-                    <tr><td width="30%">No. RM</td><td>: {d['rm']}</td></tr>
-                    <tr><td>Tanggal</td><td>: {d['tgl_copy']}</td></tr>
+                    <tr>
+                        <td width="20%">Nama</td><td width="55%">: <strong>{d['nama']}</strong></td>
+                        <td width="25%" style="text-align: right; vertical-align: top;">
+                            <div style="font-size: 11px;">{tgl_hari}</div>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td>No RM</td><td>: {d['rm']}</td>
+                        <td style="text-align: right;">
+                            <div style="font-size: 9px; line-height: 1;">{tgl_bln_thn}</div>
+                        </td>
+                    </tr>
                 </table>
-                <div class="e-signa">{o['signa']}</div>
-                <div class="e-obat">Nama Obat: <strong>{o['nama']}</strong></div>
-                <div class="e-footer">Semoga Lekas Sembuh</div>
+                <div class="e-signa">{row['signa']}</div>
+                <table class="e-obat-table">
+                    <tr><td width="20%">Nama<br>Obat</td><td width="80%">: <span style="font-size: 11px;">{row['nama']}</span></td></tr>
+                </table>
+                <div class="e-footer">Kesembuhan Dan Kesehatan Anda Adalah Do'a Yang Kami Panjatkan</div>
             </div>
             """
             
@@ -479,21 +543,21 @@ with tab4:
         <!DOCTYPE html><html><head><style>
             @page {{ size: 70mm 50mm; margin: 0; }}
             body {{ background-color: #FFFFFF !important; color: #000000 !important; font-family: 'Arial', sans-serif; margin: 0; padding: 0; }}
-            .etiket-page {{ width: 66mm; height: 46mm; padding: 2mm; box-sizing: border-box; page-break-after: always; overflow: hidden; }}
-            .e-kop {{ text-align: center; font-size: 9px; font-weight: bold; margin-bottom: 2px; }}
-            .e-line {{ border-bottom: 1px solid #000; margin-bottom: 3px; }}
-            .e-meta {{ width: 100%; font-size: 8px; margin-bottom: 5px; }}
+            .etiket-page {{ width: 68mm; height: 48mm; padding: 1mm 2mm; box-sizing: border-box; page-break-after: always; overflow: hidden; position: relative; }}
+            .e-header {{ display: flex; align-items: center; border-bottom: 2px solid #aaa; padding-bottom: 3px; margin-bottom: 3px; }}
+            .e-meta {{ width: 100%; font-size: 10px; margin-bottom: 5px; border-collapse: collapse; }}
             .e-meta td {{ padding: 1px 0; vertical-align: top; }}
-            .e-signa {{ text-align: center; font-size: 11px; font-weight: bold; border-top: 1px solid #000; border-bottom: 1px solid #000; padding: 4px 0; margin-bottom: 5px; }}
-            .e-obat {{ font-size: 8px; padding-left: 2px; }}
-            .e-footer {{ text-align: center; font-size: 7px; font-style: italic; margin-top: 5px; border-top: 1px dashed #aaa; padding-top: 3px; }}
+            .e-signa {{ text-align: center; font-size: 13px; font-weight: 900; border-top: 2px solid #000; border-bottom: 2px solid #000; padding: 5px 0; margin-bottom: 5px; text-transform: uppercase; }}
+            .e-obat-table {{ width: 100%; font-size: 10px; border-collapse: collapse; margin-bottom: 2px; }}
+            .e-obat-table td {{ vertical-align: top; padding: 1px 0; }}
+            .e-footer {{ text-align: center; font-size: 7px; font-weight: bold; color: #777; border-top: 1px solid #000; padding-top: 3px; position: absolute; bottom: 3mm; width: 64mm; }}
         </style></head><body>{html_etiket_pages}</body></html>
         """
         
         c3, c4 = st.columns([8,2])
-        with c3: components.html(html_thermal, height=200, scrolling=True)
+        with c3: components.html(html_thermal, height=300, scrolling=True)
         with c4:
-            st.markdown("<br><br>", unsafe_allow_html=True)
+            st.markdown("<br><br><br>", unsafe_allow_html=True)
             js_print_thermal = f"""<script>function printThermal() {{ var win = window.open('', '', 'height=400,width=400'); win.document.write(`{html_thermal}`); win.document.close(); win.print(); }}</script>
             <button onclick="printThermal()" style="background: linear-gradient(135deg, #F59E0B, #D97706); color: white; border: none; padding: 15px; font-weight: 800; border-radius: 12px; cursor: pointer; width: 100%; box-shadow: 0 6px 0 #B45309, 0 10px 20px rgba(245,158,11,0.3); transition: all 0.1s;" onmousedown="this.style.transform='translateY(6px)'; this.style.boxShadow='0 0 0 #B45309, 0 5px 5px rgba(245,158,11,0.3)';" onmouseup="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 0 #B45309, 0 10px 20px rgba(245,158,11,0.3)';">🖨️ PRINT ETIKET THERMAL</button>"""
             components.html(js_print_thermal, height=100)
@@ -528,43 +592,46 @@ with tab5:
         if not df_laporan.empty:
             df_laporan.insert(0, 'Hapus', False)
             
-            edited_df = st.data_editor(
+            edited_df_laporan = st.data_editor(
                 df_laporan,
                 column_config={"Hapus": st.column_config.CheckboxColumn("Pilih Hapus", default=False)},
                 disabled=df_laporan.columns.drop('Hapus'),
                 hide_index=True,
-                use_container_width=True
+                use_container_width=True,
+                key="editor_laporan_data" # Key wajib untuk hindari bug double click
             )
             
-            baris_terpilih = edited_df[edited_df['Hapus'] == True]
+            baris_terpilih = edited_df_laporan[edited_df_laporan['Hapus'] == True]
             
             if not baris_terpilih.empty:
                 if st.button("🗑️ Hapus Data Terpilih", type="primary"):
-                    with st.spinner("🗑️ Sedang menghapus data dari server..."):
-                        if sheet:
-                            all_records = sheet.get_all_records()
-                            for i in range(len(all_records) - 1, -1, -1):
-                                rec = all_records[i]
-                                for _, row_del in baris_terpilih.iterrows():
-                                    rm_del = str(row_del.get('No. RM', row_del.get('RM', '')))
-                                    rm_rec = str(rec.get('No. RM', rec.get('RM', '')))
-                                    tgl_del = str(row_del.get('Tanggal Input', ''))
-                                    tgl_rec = str(rec.get('Tanggal Input', ''))
-                                    
-                                    if tgl_rec == tgl_del and rm_rec == rm_del:
-                                        try:
-                                            sheet.delete_rows(i + 2)
-                                        except AttributeError:
-                                            sheet.delete_row(i + 2)
-                                        break
-                        else:
-                            st.session_state['db_lokal'] = [
-                                r for r in st.session_state['db_lokal']
-                                if not any((str(r[0]) == str(row_del.get('Tanggal Input', '')) and str(r[2]) == str(row_del.get('No. RM', row_del.get('RM', '')))) for _, row_del in baris_terpilih.iterrows())
-                            ]
-                        
-                    st.success(f"✅ Berhasil menghapus {len(baris_terpilih)} data!")
-                    time.sleep(1) 
+                    del_bar = st.progress(0, text="Menghapus data dari server...")
+                    time.sleep(0.3)
+                    if sheet:
+                        all_records = sheet.get_all_records()
+                        for i in range(len(all_records) - 1, -1, -1):
+                            rec = all_records[i]
+                            for _, row_del in baris_terpilih.iterrows():
+                                rm_del = str(row_del.get('No. RM', row_del.get('RM', '')))
+                                rm_rec = str(rec.get('No. RM', rec.get('RM', '')))
+                                tgl_del = str(row_del.get('Tanggal Input', ''))
+                                tgl_rec = str(rec.get('Tanggal Input', ''))
+                                
+                                if tgl_rec == tgl_del and rm_rec == rm_del:
+                                    try:
+                                        sheet.delete_rows(i + 2)
+                                    except AttributeError:
+                                        sheet.delete_row(i + 2)
+                                    break
+                    else:
+                        st.session_state['db_lokal'] = [
+                            r for r in st.session_state['db_lokal']
+                            if not any((str(r[0]) == str(row_del.get('Tanggal Input', '')) and str(r[2]) == str(row_del.get('No. RM', row_del.get('RM', '')))) for _, row_del in baris_terpilih.iterrows())
+                        ]
+                    
+                    del_bar.progress(100, text="Selesai menghapus!")
+                    time.sleep(0.5)
+                    del_bar.empty()
                     st.rerun()
 
             csv = df_laporan.drop(columns=['Hapus']).to_csv(index=False).encode('utf-8')
