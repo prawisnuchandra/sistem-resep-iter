@@ -19,7 +19,7 @@ def get_waktu_sekarang():
     return datetime.now(WIB)
 
 # ==========================================
-# 1. KONFIGURASI UI/UX (ADAPTIF DARK/LIGHT 3D)
+# 1. KONFIGURASI UI/UX
 # ==========================================
 st.set_page_config(page_title="Sistem Copy Resep 3D", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
@@ -38,7 +38,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KONEKSI GOOGLE SHEETS & SISTEM DATABASE
+# 2. KONEKSI GOOGLE SHEETS & AUTO-HEAL
 # ==========================================
 def get_gsheets_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
@@ -59,10 +59,29 @@ def get_gsheets_connection():
 sheet, connection_status = get_gsheets_connection()
 if 'db_lokal' not in st.session_state: st.session_state['db_lokal'] = []
 
+# AUTO-HEAL: Paksa Google Sheets memiliki 9 Judul Kolom yang Benar
+def pastikan_database_sehat():
+    if sheet:
+        try:
+            standar_headers = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
+            headers_sekarang = sheet.row_values(1)
+            if headers_sekarang != standar_headers:
+                try: sheet.update('A1:I1', [standar_headers])
+                except: sheet.update([standar_headers], 'A1:I1')
+        except: pass
+pastikan_database_sehat()
+
 def simpan_data(data_dict):
     row_data = [
-        get_waktu_sekarang().strftime("%Y-%m-%d %H:%M:%S"), data_dict["Nama Pasien"], data_dict["No. RM"], data_dict["Tanggal Resep Asli"],
-        data_dict["Nama Dokter"], data_dict["No. Kartu"], data_dict["SEP"], data_dict["Jumlah Iter"], data_dict["Daftar Obat"]
+        get_waktu_sekarang().strftime("%Y-%m-%d %H:%M:%S"), 
+        str(data_dict.get("Nama Pasien", "")), 
+        str(data_dict.get("No. RM", "")), 
+        str(data_dict.get("Tanggal Resep Asli", "")),
+        str(data_dict.get("Nama Dokter", "")), 
+        str(data_dict.get("No. Kartu", "")), 
+        str(data_dict.get("SEP", "")), 
+        str(data_dict.get("Jumlah Iter", "")), 
+        str(data_dict.get("Daftar Obat", ""))
     ]
     
     if sheet: 
@@ -70,12 +89,10 @@ def simpan_data(data_dict):
             records = sheet.get_all_records()
             for i, rec in enumerate(records):
                 keys = list(rec.keys())
-                rm_key = next((k for k in keys if 'rm' in k.lower()), keys[2] if len(keys) > 2 else 'No. RM')
+                rm_key = next((k for k in keys if 'rm' in k.lower()), keys[2] if len(keys) > 2 else 'RM')
                 tgl_key = next((k for k in keys if 'tanggal' in k.lower() and 'input' not in k.lower()), keys[3] if len(keys) > 3 else 'Tanggal Resep Asli')
                 
-                rm_record = str(rec.get(rm_key, "")).strip()
-                if rm_record == str(data_dict["No. RM"]).strip() and \
-                   str(rec.get(tgl_key, "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
+                if str(rec.get(rm_key, "")).strip() == str(data_dict["No. RM"]).strip() and str(rec.get(tgl_key, "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
                     try: sheet.delete_rows(i + 2)
                     except AttributeError: sheet.delete_row(i + 2)
                     break 
@@ -93,22 +110,15 @@ def ambil_semua_data():
     kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
-# ==========================================
-# FUNGSI PENCARI KOLOM CERDAS (ANTI-TERTUKAR)
-# ==========================================
 def cari_kolom(df_columns, keywords, excludes=[]):
-    # Cari kecocokan persis
     for kw in keywords:
         for col in df_columns:
             cl = str(col).lower().strip()
-            if kw.lower() == cl and not any(ex.lower() in cl for ex in excludes):
-                return col
-    # Cari kecocokan sebagian teks (substring)
+            if kw.lower() == cl and not any(ex.lower() in cl for ex in excludes): return col
     for kw in keywords:
         for col in df_columns:
             cl = str(col).lower().strip()
-            if kw.lower() in cl and not any(ex.lower() in cl for ex in excludes):
-                return col
+            if kw.lower() in cl and not any(ex.lower() in cl for ex in excludes): return col
     return None
 
 def parse_db_obat(db_string):
@@ -453,7 +463,6 @@ with tab4:
     else:
         rm_cari = st.text_input("🔍 Masukkan No. RM untuk mencari riwayat resep:", key="cari_rm_iter")
         
-        # Inisialisasi Pencari Kolom untuk Filtering
         col_rm_db = cari_kolom(df_data.columns, ["rm", "rekam"]) or df_data.columns[2]
         col_tgl_db = cari_kolom(df_data.columns, ["asli", "resep"], ["input"]) or df_data.columns[3]
         col_nama_db = cari_kolom(df_data.columns, ["pasien", "nama"], ["dokter"]) or df_data.columns[1]
@@ -481,7 +490,6 @@ with tab4:
                 if st.button("🔽 Tarik & Proses Data Iter Ini"):
                     bar_tarik = st.progress(0, text="Mengambil data riwayat pasien...")
                     time.sleep(0.2)
-                    
                     bar_tarik.progress(40, text="Memetakan susunan kolom ke formulir...")
                     
                     st.session_state['hasil_ekstrak_iter'] = {
@@ -576,7 +584,7 @@ with tab4:
                 st.session_state['show_success_tab4'] = True
                 st.rerun()
         else: 
-            st.warning("⚠️ Data obat tidak terbaca atau kosong. Kemungkinan format di Google Sheets rusak.")
+            st.warning("⚠️ Data obat tidak terbaca atau kosong. (Hapus dan input ulang pasien ini karena data lamanya tersimpan bergeser).")
 
 # --- TAB 5: PUSAT CETAK ---
 with tab5:
