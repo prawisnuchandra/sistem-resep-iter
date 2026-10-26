@@ -89,7 +89,7 @@ def ambil_semua_data():
     kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
-# Pelacak Kolom Cerdas (Agar kebal dari error KeyError red text)
+# Pelacak Kolom Cerdas
 def get_col(df, possible_names, default_idx):
     for name in possible_names:
         if name in df.columns:
@@ -724,7 +724,11 @@ with tab6:
                     else:
                         st.session_state['db_lokal'] = [
                             r for r in st.session_state['db_lokal']
-                            if not any((str(r[0]) == str(row_del.get('Tanggal Input', '')) and str(r[2]) == str(row_del.get(get_col(df_data, ['RM', 'No. RM'], 2), '')))) for _, row_del in baris_terpilih.iterrows())
+                            if not any(
+                                (str(r[0]) == str(row_del.get('Tanggal Input', '')) and 
+                                 str(r[2]) == str(row_del.get(get_col(df_data, ['RM', 'No. RM'], 2), ''))) 
+                                for _, row_del in baris_terpilih.iterrows()
+                            )
                         ]
                     
                     del_bar.progress(100, text="Selesai menghapus!")
