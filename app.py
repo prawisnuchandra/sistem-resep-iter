@@ -89,12 +89,10 @@ def ambil_semua_data():
     kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
-# Mengubah String DB kembali menjadi List Dictionary untuk fitur Iter
 def parse_db_obat(db_string):
     obat_list = []
     items = db_string.split(" | ")
     for item in items:
-        # Menyesuaikan pola ekstraksi dari database: NAMA OBAT (SIGNA No. JUMLAH) [STATUS]
         match = re.match(r"(.*?)\s*\((.*?)\s*No\.\s*(.*?)\)\s*\[(.*?)\]", item)
         if match:
             nama = match.group(1).strip()
@@ -102,7 +100,6 @@ def parse_db_obat(db_string):
             jumlah = match.group(3).strip()
             status_lama = match.group(4).strip()
 
-            # Otomatis naik level iterasi
             status_baru = "🟢 det orig"
             if "det orig" in status_lama: status_baru = "🔵 det iter 1x"
             elif "iter 1x" in status_lama: status_baru = "🟣 det iter 2x"
@@ -152,11 +149,27 @@ def parse_teks_resep(teks_mentah):
         nama_obat = lines[0].replace('//', '').strip()
         jumlah, signa, waktu = "", "", ""
         
+        # 1. Ekstrak 'Jumlah' jika tergabung dalam teks nama obat (Cegah masuk ke Nama Obat)
+        m_jum_inline = re.search(r'Jumlah\s*(\d+)', nama_obat, re.IGNORECASE)
+        if m_jum_inline:
+            jumlah = m_jum_inline.group(1)
+        # Hapus kata "Jumlah" dan angkanya dari nama_obat agar bersih
+        nama_obat = re.sub(r'/?\s*Jumlah\s*\d*', '', nama_obat, flags=re.IGNORECASE).strip()
+        
+        # 2. Cari Signa, Waktu, dan Jumlah di sisa baris
         for i, line in enumerate(lines):
-            if "Jumlah" in line and i + 1 < len(lines):
-                jumlah = lines[i+1].strip()
-            if "x" in line.lower() and any(c.isdigit() for c in line):
+            # Cek 'Jumlah' jika berada di baris tersendiri dan belum ketemu
+            if "Jumlah" in line and not jumlah:
+                m_jum = re.search(r'Jumlah\s*(\d+)', line, re.IGNORECASE)
+                if m_jum:
+                    jumlah = m_jum.group(1)
+                elif i + 1 < len(lines):
+                    # Fallback jika baris ini hanya berisi "Jumlah" dan angkanya di baris bawah
+                    jumlah = lines[i+1].strip()
+                    
+            if "x" in line.lower() and any(c.isdigit() for c in line) and "jumlah" not in line.lower():
                 signa = line
+                
             if line.lower() in ['pagi', 'siang', 'sore', 'malam', 'pc', 'ac', 'prn', 'pc prn', 'ac prn']:
                 waktu = line
         
@@ -202,7 +215,6 @@ with st.sidebar:
     st.metric(label="Resep Masuk Hari Ini", value=f"{total_hari_ini} Resep", delta="Aktif")
     st.markdown(f'<div class="status-box status-{"success" if sheet else "warning"}">{"✅" if sheet else "⚠️"} {connection_status}</div>', unsafe_allow_html=True)
 
-# Opsi Warna Dropdown Global
 opsi_status = ["🟢 det orig", "🟡 det", "🔴 ne det", "🔵 det iter 1x", "🟣 det iter 2x", "🟤 det iter 3x"]
 
 # ==========================================
@@ -210,7 +222,6 @@ opsi_status = ["🟢 det orig", "🟡 det", "🔴 ne det", "🔵 det iter 1x", "
 # ==========================================
 st.title("✨ Sistem Cerdas Copy Resep & Etiket")
 
-# Menambahkan Tab baru untuk Tarik Iter
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 Paste Teks", "📂 Upload PDF", "✍️ Manual", "🔄 Tarik Data Iter", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
 # --- TAB 1: PASTE TEKS ---
@@ -264,7 +275,7 @@ with tab1:
             edited_df_obat = st.data_editor(
                 st.session_state['df_obat_teks'],
                 column_config={"Hapus": st.column_config.CheckboxColumn("🗑️ Hapus", default=False), "Status": st.column_config.SelectboxColumn("Status", options=opsi_status)},
-                disabled=["Nama Obat", "Aturan Pakai", "Jumlah"], hide_index=True, use_container_width=True, key="editor_obat_teks" 
+                disabled=["Nama Obat"], hide_index=True, use_container_width=True, key="editor_obat_teks" 
             )
             
             if st.button("🗑️ Hapus Obat Terpilih", key="del_tab1"):
@@ -290,7 +301,7 @@ with tab1:
                 st.session_state['data_cetak'] = {
                     "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), "dokter": dokter_p, 
                     "kartu": kartu_p, "sep": sep_p, "iter": iter_p, "obat_list": obat_siap_cetak, 
-                    "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y") # Tgl Copy mengikuti waktu ambil obat
+                    "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")
                 }
                 
                 save_bar.progress(100, text="Selesai!")
@@ -336,7 +347,7 @@ with tab2:
             edited_df_obat2 = st.data_editor(
                 st.session_state['df_obat_pdf'],
                 column_config={"Hapus": st.column_config.CheckboxColumn("🗑️ Hapus", default=False), "Status": st.column_config.SelectboxColumn("Status", options=opsi_status)},
-                disabled=["Nama Obat", "Aturan Pakai", "Jumlah"], hide_index=True, use_container_width=True, key="editor_obat_pdf"
+                disabled=["Nama Obat"], hide_index=True, use_container_width=True, key="editor_obat_pdf"
             )
             
             if st.button("🗑️ Hapus Obat Terpilih (PDF)", key="del_tab2"):
@@ -403,7 +414,7 @@ with tab3:
                 st.session_state['show_success_tab3'] = True
                 st.rerun()
 
-# --- TAB 4: TARIK DATA ITER (BARU) ---
+# --- TAB 4: TARIK DATA ITER ---
 with tab4:
     st.info("💡 **Gunakan fitur ini untuk resep Iterasi (Refill).** Masukkan No. RM pasien, pilih resep sebelumnya, dan sistem akan otomatis menyiapkan etiket untuk hari ini & menaikkan status iter pada copy resep.")
     
@@ -411,10 +422,8 @@ with tab4:
     else:
         rm_cari = st.text_input("🔍 Masukkan No. RM untuk mencari riwayat resep:", key="cari_rm_iter")
         if rm_cari:
-            # Mencari data berdasarkan RM
             df_match = df_data[df_data['RM'].astype(str).str.contains(rm_cari, case=False)]
             if not df_match.empty:
-                # Menyiapkan dropdown pilihan riwayat
                 opsi_riwayat = df_match['Tanggal Resep Asli'].astype(str) + " - " + df_match['Nama Pasien'] + " (Dokter: " + df_match['Nama Dokter'] + ")"
                 pilihan_riwayat = st.selectbox("📂 Pilih Riwayat Resep Sebelumnya:", opsi_riwayat.tolist())
                 
@@ -423,7 +432,6 @@ with tab4:
                 
                 if st.button("🔽 Tarik & Proses Data Iter Ini"):
                     st.session_state['hasil_ekstrak_iter'] = row_terpilih.to_dict()
-                    # Parsing string database kembali ke format list obat (dengan auto-increment status)
                     st.session_state['df_obat_iter'] = pd.DataFrame(parse_db_obat(row_terpilih['Daftar Obat']))
             else:
                 st.error("Data pasien tidak ditemukan.")
@@ -444,7 +452,6 @@ with tab4:
             kartu_p3 = st.text_input("No. Kartu BPJS", value=hasil_it.get("No. Kartu", ""), key="p_kartu_it")
             sep_p3 = st.text_input("No. SEP", value=hasil_it.get("SEP", ""), key="p_sep_it")
         with c3:
-            # Tetap gunakan Tgl Resep Asli (string dari db), konversi ke Date object untuk widget
             tgl_lama = datetime.strptime(hasil_it.get("Tanggal Resep Asli", get_waktu_sekarang().strftime("%Y-%m-%d")), "%Y-%m-%d").date()
             tgl_r3 = st.date_input("Tanggal Resep Asli", value=tgl_lama, key="p_tgl_it")
             dokter_p3 = st.text_input("Nama Dokter", value=hasil_it.get("Nama Dokter", ""), key="p_dok_it")
@@ -484,7 +491,7 @@ with tab4:
                 st.session_state['data_cetak'] = {
                     "nama": nama_p3, "rm": rm_p3, "tgl_resep": tgl_r3.strftime("%d %B %Y"), "dokter": dokter_p3, 
                     "kartu": kartu_p3, "sep": sep_p3, "iter": iter_p3, "obat_list": obat_siap_cetak3, 
-                    "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y") # Tgl Copy akan selalu tgl hari ini (saat pasien ambil)
+                    "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")
                 }
                 st.session_state['show_success_tab4'] = True
                 st.rerun()
@@ -497,9 +504,7 @@ with tab5:
         st.subheader("📑 1. Cetak Copy Resep (A5)")
         html_rows_obat = ""
         for o in d['obat_list']:
-            # Membersihkan status dari Emoji (seperti '🟢 det orig' menjadi 'det orig')
             status_bersih = o['status'].split(" ", 1)[-1] if " " in o['status'] else o['status']
-            
             html_rows_obat += f"""
             <tr style="vertical-align: top;">
                 <td style="padding: 6px 0; font-weight: bold; width: 5%;">R/</td>
@@ -536,13 +541,7 @@ with tab5:
             </table>
             <div class="line-thin"></div>
             <table class="obat-table">{html_rows_obat}</table>
-            
-            <!-- Perubahan Footer Copy Resep: p.c.c murni dan menyisakan tempat paraf -->
-            <div class="footer-box">
-                <div class="pcc">p.c.c</div>
-                <div>_________________________</div>
-            </div>
-            
+            <div class="footer-box"><div class="pcc">p.c.c</div><div>_________________________</div></div>
             <div class="bottom-text">Kesembuhan Dan Kesehatan Anda Adalah Do'a Yang Kami Panjatkan</div>
         </body></html>
         """
@@ -570,9 +569,7 @@ with tab5:
             st.session_state['df_etiket_edit'],
             column_config={
                 "Cetak": st.column_config.CheckboxColumn("🖨️ Cetak?", default=True),
-                "nama": "Nama Obat",
-                "signa": "Aturan Pakai",
-                "jumlah": "Jumlah"
+                "nama": "Nama Obat", "signa": "Aturan Pakai", "jumlah": "Jumlah"
             },
             hide_index=True, use_container_width=True, key="editor_etiket_thermal"
         )
@@ -585,7 +582,6 @@ with tab5:
 
         html_etiket_pages = ""
         for _, row in edited_etiket[edited_etiket['Cetak'] == True].iterrows():
-            # Perubahan Desain Etiket: Layout direngkatkan persis dengan tes 2_2.png
             html_etiket_pages += f"""
             <div class="etiket-page">
                 <div class="e-header">
