@@ -89,6 +89,13 @@ def ambil_semua_data():
     kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
+# Pelacak Kolom Cerdas (Agar kebal dari error KeyError red text)
+def get_col(df, possible_names, default_idx):
+    for name in possible_names:
+        if name in df.columns:
+            return name
+    return df.columns[default_idx] if len(df.columns) > default_idx else df.columns[-1]
+
 def parse_db_obat(db_string):
     obat_list = []
     items = db_string.split(" | ")
@@ -149,23 +156,15 @@ def parse_teks_resep(teks_mentah):
         nama_obat = lines[0].replace('//', '').strip()
         jumlah, signa, waktu = "", "", ""
         
-        # 1. Ekstrak 'Jumlah' jika tergabung dalam teks nama obat (Cegah masuk ke Nama Obat)
         m_jum_inline = re.search(r'Jumlah\s*(\d+)', nama_obat, re.IGNORECASE)
-        if m_jum_inline:
-            jumlah = m_jum_inline.group(1)
-        # Hapus kata "Jumlah" dan angkanya dari nama_obat agar bersih
+        if m_jum_inline: jumlah = m_jum_inline.group(1)
         nama_obat = re.sub(r'/?\s*Jumlah\s*\d*', '', nama_obat, flags=re.IGNORECASE).strip()
         
-        # 2. Cari Signa, Waktu, dan Jumlah di sisa baris
         for i, line in enumerate(lines):
-            # Cek 'Jumlah' jika berada di baris tersendiri dan belum ketemu
             if "Jumlah" in line and not jumlah:
                 m_jum = re.search(r'Jumlah\s*(\d+)', line, re.IGNORECASE)
-                if m_jum:
-                    jumlah = m_jum.group(1)
-                elif i + 1 < len(lines):
-                    # Fallback jika baris ini hanya berisi "Jumlah" dan angkanya di baris bawah
-                    jumlah = lines[i+1].strip()
+                if m_jum: jumlah = m_jum.group(1)
+                elif i + 1 < len(lines): jumlah = lines[i+1].strip()
                     
             if "x" in line.lower() and any(c.isdigit() for c in line) and "jumlah" not in line.lower():
                 signa = line
@@ -418,23 +417,34 @@ with tab3:
 with tab4:
     st.info("💡 **Gunakan fitur ini untuk resep Iterasi (Refill).** Masukkan No. RM pasien, pilih resep sebelumnya, dan sistem akan otomatis menyiapkan etiket untuk hari ini & menaikkan status iter pada copy resep.")
     
-    if df_data.empty: st.warning("Database masih kosong.")
+    if df_data.empty: 
+        st.warning("Database masih kosong.")
     else:
         rm_cari = st.text_input("🔍 Masukkan No. RM untuk mencari riwayat resep:", key="cari_rm_iter")
         if rm_cari:
-            df_match = df_data[df_data['RM'].astype(str).str.contains(rm_cari, case=False)]
-            if not df_match.empty:
-                opsi_riwayat = df_match['Tanggal Resep Asli'].astype(str) + " - " + df_match['Nama Pasien'] + " (Dokter: " + df_match['Nama Dokter'] + ")"
-                pilihan_riwayat = st.selectbox("📂 Pilih Riwayat Resep Sebelumnya:", opsi_riwayat.tolist())
+            try:
+                col_rm = get_col(df_data, ['RM', 'No. RM', 'No RM'], 2)
+                df_match = df_data[df_data[col_rm].astype(str).str.contains(rm_cari, case=False)]
                 
-                idx_terpilih = opsi_riwayat.tolist().index(pilihan_riwayat)
-                row_terpilih = df_match.iloc[idx_terpilih]
-                
-                if st.button("🔽 Tarik & Proses Data Iter Ini"):
-                    st.session_state['hasil_ekstrak_iter'] = row_terpilih.to_dict()
-                    st.session_state['df_obat_iter'] = pd.DataFrame(parse_db_obat(row_terpilih['Daftar Obat']))
-            else:
-                st.error("Data pasien tidak ditemukan.")
+                if not df_match.empty:
+                    col_tgl = get_col(df_match, ['Tanggal Resep Asli', 'Tgl Resep Asli', 'Tanggal'], 3)
+                    col_nama = get_col(df_match, ['Nama Pasien', 'Nama Lengkap', 'Nama'], 1)
+                    col_dok = get_col(df_match, ['Nama Dokter', 'Dokter', 'dr'], 4)
+                    col_obat = get_col(df_match, ['Daftar Obat', 'Obat', 'Rincian'], 8)
+                    
+                    opsi_riwayat = df_match[col_tgl].astype(str) + " - " + df_match[col_nama].astype(str) + " (Dokter: " + df_match[col_dok].astype(str) + ")"
+                    pilihan_riwayat = st.selectbox("📂 Pilih Riwayat Resep Sebelumnya:", opsi_riwayat.tolist())
+                    
+                    idx_terpilih = opsi_riwayat.tolist().index(pilihan_riwayat)
+                    row_terpilih = df_match.iloc[idx_terpilih]
+                    
+                    if st.button("🔽 Tarik & Proses Data Iter Ini"):
+                        st.session_state['hasil_ekstrak_iter'] = row_terpilih.to_dict()
+                        st.session_state['df_obat_iter'] = pd.DataFrame(parse_db_obat(str(row_terpilih[col_obat])))
+                else:
+                    st.error("Data pasien tidak ditemukan.")
+            except Exception as e:
+                st.error("Terjadi masalah dalam membaca kolom database. Mohon periksa struktur tabel Google Sheets Anda.")
                 
     if 'hasil_ekstrak_iter' in st.session_state and 'df_obat_iter' in st.session_state:
         if st.session_state.get('show_success_tab4'):
@@ -446,16 +456,24 @@ with tab4:
         st.subheader("👤 Identitas Pasien (Iterasi)")
         c1, c2, c3 = st.columns(3)
         with c1:
-            nama_p3 = st.text_input("Nama Pasien", value=hasil_it.get("Nama Pasien", ""), key="p_nama_it")
-            rm_p3 = st.text_input("No. RM", value=hasil_it.get("RM", ""), key="p_rm_it")
+            nama_p3 = st.text_input("Nama Pasien", value=hasil_it.get(get_col(df_data, ['Nama Pasien'], 1), ""), key="p_nama_it")
+            rm_p3 = st.text_input("No. RM", value=hasil_it.get(get_col(df_data, ['RM', 'No. RM'], 2), ""), key="p_rm_it")
         with c2:
-            kartu_p3 = st.text_input("No. Kartu BPJS", value=hasil_it.get("No. Kartu", ""), key="p_kartu_it")
-            sep_p3 = st.text_input("No. SEP", value=hasil_it.get("SEP", ""), key="p_sep_it")
+            kartu_p3 = st.text_input("No. Kartu BPJS", value=hasil_it.get(get_col(df_data, ['No. Kartu'], 5), ""), key="p_kartu_it")
+            sep_p3 = st.text_input("No. SEP", value=hasil_it.get(get_col(df_data, ['SEP'], 6), ""), key="p_sep_it")
         with c3:
-            tgl_lama = datetime.strptime(hasil_it.get("Tanggal Resep Asli", get_waktu_sekarang().strftime("%Y-%m-%d")), "%Y-%m-%d").date()
+            try:
+                tgl_str = str(hasil_it.get(get_col(df_data, ['Tanggal Resep Asli'], 3), get_waktu_sekarang().strftime("%Y-%m-%d")))
+                tgl_lama = datetime.strptime(tgl_str, "%Y-%m-%d").date()
+            except:
+                tgl_lama = get_waktu_sekarang().date()
+                
             tgl_r3 = st.date_input("Tanggal Resep Asli", value=tgl_lama, key="p_tgl_it")
-            dokter_p3 = st.text_input("Nama Dokter", value=hasil_it.get("Nama Dokter", ""), key="p_dok_it")
-            iter_p3 = st.number_input("Jumlah Iter", min_value=0, value=int(hasil_it.get("Jumlah Iter", 2)), key="p_iter_it")
+            dokter_p3 = st.text_input("Nama Dokter", value=hasil_it.get(get_col(df_data, ['Nama Dokter', 'Dokter'], 4), ""), key="p_dok_it")
+            
+            try: iter_val = int(hasil_it.get(get_col(df_data, ['Jumlah Iter'], 7), 2))
+            except: iter_val = 2
+            iter_p3 = st.number_input("Jumlah Iter", min_value=0, value=iter_val, key="p_iter_it")
             
         st.subheader("💊 Rincian Obat (Status Otomatis Naik)")
         if not st.session_state['df_obat_iter'].empty:
@@ -652,9 +670,11 @@ with tab6:
         pencarian = st.text_input("Masukkan Nama Pasien atau No. RM:")
         
         if pencarian:
-            df_cari = df_data[df_data.apply(lambda row: row.astype(str).str.contains(pencarian, case=False).any(), axis=1)]
-            if not df_cari.empty: st.dataframe(df_cari, use_container_width=True)
-            else: st.warning("Data tidak ditemukan.")
+            try:
+                df_cari = df_data[df_data.apply(lambda row: row.astype(str).str.contains(pencarian, case=False).any(), axis=1)]
+                if not df_cari.empty: st.dataframe(df_cari, use_container_width=True)
+                else: st.warning("Data tidak ditemukan.")
+            except: pass
             
         st.markdown("---")
         st.subheader("📊 Laporan Bulanan (Unduh & Kelola Data)")
@@ -692,8 +712,8 @@ with tab6:
                         for i in range(len(all_records) - 1, -1, -1):
                             rec = all_records[i]
                             for _, row_del in baris_terpilih.iterrows():
-                                rm_del = str(row_del.get('No. RM', row_del.get('RM', '')))
-                                rm_rec = str(rec.get('No. RM', rec.get('RM', '')))
+                                rm_del = str(row_del.get(get_col(df_data, ['RM', 'No. RM'], 2), ''))
+                                rm_rec = str(rec.get(get_col(df_data, ['RM', 'No. RM'], 2), ''))
                                 tgl_del = str(row_del.get('Tanggal Input', ''))
                                 tgl_rec = str(rec.get('Tanggal Input', ''))
                                 
@@ -704,7 +724,7 @@ with tab6:
                     else:
                         st.session_state['db_lokal'] = [
                             r for r in st.session_state['db_lokal']
-                            if not any((str(r[0]) == str(row_del.get('Tanggal Input', '')) and str(r[2]) == str(row_del.get('No. RM', row_del.get('RM', '')))) for _, row_del in baris_terpilih.iterrows())
+                            if not any((str(r[0]) == str(row_del.get('Tanggal Input', '')) and str(r[2]) == str(row_del.get(get_col(df_data, ['RM', 'No. RM'], 2), '')))) for _, row_del in baris_terpilih.iterrows())
                         ]
                     
                     del_bar.progress(100, text="Selesai menghapus!")
