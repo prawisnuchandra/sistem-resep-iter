@@ -94,11 +94,29 @@ def ambil_semua_data():
     kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
     return pd.DataFrame(st.session_state['db_lokal'], columns=kolom)
 
-# Ekstraktor Mutlak (Mencegah kolom bergeser)
-def ext_val(row, col_names, index_fallback):
-    for c in col_names:
-        if c in row.index: return row[c]
-    if index_fallback < len(row.index): return row.iloc[index_fallback]
+# Pembacaan kolom berdasarkan nama header, bukan posisi kolom.
+# Normalisasi membuat "No. Kartu BPJS", "No Kartu BPJS", dan variasi spasi/tanda baca
+# lebih mudah dikenali sebagai kolom yang sama.
+def normalisasi_nama_kolom(teks):
+    return re.sub(r"[^a-z0-9]", "", str(teks).casefold())
+
+
+def cari_nama_kolom(columns, aliases):
+    alias_normal = {normalisasi_nama_kolom(alias) for alias in aliases}
+    for column in columns:
+        if normalisasi_nama_kolom(column) in alias_normal:
+            return column
+    return None
+
+
+def ext_val(row, col_names, index_fallback=None):
+    # Cari nama header lebih dulu. Bila tidak ditemukan, fallback posisi hanya
+    # digunakan kalau pemanggil memang secara eksplisit memintanya.
+    kolom = cari_nama_kolom(row.index, col_names)
+    if kolom is not None:
+        return row[kolom]
+    if index_fallback is not None and index_fallback < len(row.index):
+        return row.iloc[index_fallback]
     return ""
 
 def parse_db_obat(db_string):
@@ -459,9 +477,9 @@ with tab4:
             if not df_match.empty:
                 opsi = []
                 for i, r in df_match.iterrows():
-                    t_tgl = ext_val(r, ['Tanggal Resep Asli', 'Tanggal', 'Tgl'], 3)
-                    t_nama = ext_val(r, ['Nama Pasien', 'Nama Lengkap', 'Nama'], 1)
-                    t_dok = ext_val(r, ['Nama Dokter', 'Dokter', 'dr'], 4)
+                    t_tgl = ext_val(r, ['Tanggal Resep Asli', 'Tanggal', 'Tgl', 'Tgl Resep'], None)
+                    t_nama = ext_val(r, ['Nama Pasien', 'Nama Lengkap', 'Nama'], None)
+                    t_dok = ext_val(r, ['Nama Dokter', 'Dokter', 'Dokter Penulis', 'dr'], None)
                     opsi.append(f"{t_tgl} - {t_nama} (Dokter: {t_dok})")
                     
                 pilihan_riwayat = st.selectbox("📂 Pilih Riwayat Resep Sebelumnya:", opsi)
@@ -469,20 +487,48 @@ with tab4:
                 row_terpilih = df_match.iloc[idx_terpilih]
                 
                 if st.button("🔽 Tarik & Proses Data Iter Ini"):
-                    # Ekstrak data menggunakan indeks mutlak (100% Mencegah Data Tertukar)
-                    st.session_state['hasil_ekstrak_iter'] = {
-                        "Nama Pasien": ext_val(row_terpilih, ['Nama Pasien', 'Nama Lengkap', 'Nama'], 1),
-                        "No. RM": ext_val(row_terpilih, ['No. RM', 'RM'], 2),
-                        "Tanggal Resep Asli": ext_val(row_terpilih, ['Tanggal Resep Asli', 'Tanggal', 'Tgl'], 3),
-                        "Nama Dokter": ext_val(row_terpilih, ['Nama Dokter', 'Dokter'], 4),
-                        "No. Kartu": ext_val(row_terpilih, ['No. Kartu', 'Kartu BPJS', 'Kartu'], 5),
-                        "SEP": ext_val(row_terpilih, ['SEP', 'No. SEP'], 6),
-                        "Jumlah Iter": ext_val(row_terpilih, ['Jumlah Iter', 'Iter'], 7),
-                        "Daftar Obat": ext_val(row_terpilih, ['Daftar Obat', 'Obat', 'Rincian'], 8)
+                    # Ambil identitas berdasarkan nama header yang dikenali.
+                    # Sengaja TIDAK memakai fallback posisi untuk mencegah kolom obat
+                    # keliru terbaca sebagai jumlah iter (misalnya angka "2").
+                    kolom_obat = cari_nama_kolom(
+                        row_terpilih.index,
+                        ['Daftar Obat', 'Rincian Obat', 'Rincian Resep', 'Obat Resep', 'Detail Obat', 'DaftarObat', 'Rincian', 'Obat']
+                    )
+                    hasil_iter = {
+                        "Nama Pasien": ext_val(row_terpilih, ['Nama Pasien', 'Nama Lengkap', 'Nama'], None),
+                        "No. RM": ext_val(row_terpilih, ['No. RM', 'No RM', 'Nomor RM', 'RM', 'Rekam Medis'], None),
+                        "Tanggal Resep Asli": ext_val(row_terpilih, ['Tanggal Resep Asli', 'Tanggal', 'Tgl', 'Tgl Resep'], None),
+                        "Nama Dokter": ext_val(row_terpilih, ['Nama Dokter', 'Dokter', 'Dokter Penulis', 'dr'], None),
+                        "No. Kartu": ext_val(row_terpilih, ['No. Kartu', 'No Kartu', 'No. Kartu BPJS', 'Kartu BPJS', 'Nomor Kartu', 'Nomor Kartu BPJS', 'No BPJS', 'Kartu'], None),
+                        "SEP": ext_val(row_terpilih, ['SEP', 'No. SEP', 'Nomor SEP'], None),
+                        "Jumlah Iter": ext_val(row_terpilih, ['Jumlah Iter', 'Jumlah Iterasi', 'Iter', 'Iterasi'], None),
+                        "Daftar Obat": str(row_terpilih[kolom_obat]).strip() if kolom_obat is not None else ""
                     }
-                    
-                    db_obat_str = str(st.session_state['hasil_ekstrak_iter']['Daftar Obat'])
-                    st.session_state['df_obat_iter'] = pd.DataFrame(parse_db_obat(db_obat_str))
+                    st.session_state['hasil_ekstrak_iter'] = hasil_iter
+
+                    db_obat_str = hasil_iter['Daftar Obat']
+                    kolom_debug = list(row_terpilih.index)
+                    st.session_state['diagnostik_iter'] = {
+                        "kolom_obat_ditemukan": str(kolom_obat) if kolom_obat is not None else None,
+                        "kolom_tersedia": [str(c) for c in kolom_debug],
+                        "nilai_mentah_obat": db_obat_str,
+                    }
+
+                    # Angka tunggal seperti "2" bukan data rincian obat. Jangan
+                    # tampilkan angka iter sebagai nama obat palsu.
+                    data_kosong = (not db_obat_str or db_obat_str.casefold() in {'nan', 'none', 'null'})
+                    hanya_angka = bool(re.fullmatch(r"\d+(?:\.0+)?", db_obat_str.strip())) if db_obat_str else False
+                    if kolom_obat is None:
+                        st.session_state['df_obat_iter'] = pd.DataFrame(columns=['Nama Obat', 'Aturan Pakai', 'Jumlah', 'Status', 'Hapus'])
+                        st.error("Kolom rincian obat tidak ditemukan berdasarkan nama header Google Sheets. Periksa bagian Diagnostik Pembacaan Data di bawah.")
+                    elif data_kosong or hanya_angka:
+                        st.session_state['df_obat_iter'] = pd.DataFrame(columns=['Nama Obat', 'Aturan Pakai', 'Jumlah', 'Status', 'Hapus'])
+                        st.error(f"Kolom '{kolom_obat}' terbaca, tetapi isinya bukan rincian obat yang valid: {db_obat_str!r}. Kemungkinan data lama tersimpan pada kolom yang keliru atau sel rincian obat memang kosong.")
+                    else:
+                        hasil_parse_obat = parse_db_obat(db_obat_str)
+                        st.session_state['df_obat_iter'] = pd.DataFrame(hasil_parse_obat)
+                        if not hasil_parse_obat:
+                            st.error("Data pada kolom rincian obat belum cocok dengan format parser. Periksa nilai mentah pada Diagnostik Pembacaan Data.")
             else:
                 st.error("Data pasien tidak ditemukan.")
                 
@@ -517,6 +563,15 @@ with tab4:
             except: iter_val = 2
             iter_p3 = st.number_input("Jumlah Iter", min_value=0, value=iter_val, key="p_iter_it")
             
+        if st.session_state.get('diagnostik_iter'):
+            with st.expander("🔧 Diagnostik Pembacaan Data Google Sheets", expanded=st.session_state.get('df_obat_iter', pd.DataFrame()).empty):
+                diag = st.session_state['diagnostik_iter']
+                st.write("**Header kolom yang tersedia:**", diag.get("kolom_tersedia", []))
+                st.write("**Kolom rincian obat yang dipakai:**", diag.get("kolom_obat_ditemukan") or "Tidak ditemukan")
+                st.write("**Nilai mentah yang dibaca dari kolom obat:**")
+                st.code(repr(diag.get("nilai_mentah_obat", "")), language="text")
+                st.caption("Jika nilai mentah hanya berupa angka seperti '2', aplikasi tidak dapat membangun ulang nama obat dan aturan pakai dari angka tersebut. Periksa kolom/header sumber di Google Sheets.")
+
         st.subheader("💊 Rincian Obat (Status Otomatis Naik)")
         if not st.session_state['df_obat_iter'].empty:
             edited_df_obat3 = st.data_editor(
