@@ -47,6 +47,9 @@ st.markdown("""
 # ==========================================
 # 2. KONEKSI GOOGLE SHEETS & AUTO-HEAL
 # ==========================================
+KOLOM_ITER = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
+KOLOM_PRB = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Daftar Obat"]
+
 def get_gsheets_connection():
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     try:
@@ -76,18 +79,18 @@ sheet_iter, sheet_prb, connection_status = get_gsheets_connection()
 if 'db_lokal_iter' not in st.session_state: st.session_state['db_lokal_iter'] = []
 if 'db_lokal_prb' not in st.session_state: st.session_state['db_lokal_prb'] = []
 
-def pastikan_database_sehat(sht):
+def pastikan_database_sehat(sht, is_prb):
     if sht:
         try:
-            standar_headers = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
+            standar_headers = KOLOM_PRB if is_prb else KOLOM_ITER
             headers_sekarang = sht.row_values(1)
             if headers_sekarang != standar_headers:
-                try: sht.update('A1:I1', [standar_headers])
-                except: sht.update([standar_headers], 'A1:I1')
+                try: sht.update('A1:I1' if not is_prb else 'A1:H1', [standar_headers])
+                except: sht.update([standar_headers], 'A1:I1' if not is_prb else 'A1:H1')
         except: pass
 
-pastikan_database_sehat(sheet_iter)
-pastikan_database_sehat(sheet_prb)
+pastikan_database_sehat(sheet_iter, False)
+pastikan_database_sehat(sheet_prb, True)
 
 def simpan_data(data_dict, is_prb):
     waktu = get_waktu_sekarang().strftime("%Y-%m-%d %H:%M:%S")
@@ -97,11 +100,15 @@ def simpan_data(data_dict, is_prb):
     dokter = str(data_dict.get("Nama Dokter", ""))
     kartu = str(data_dict.get("No. Kartu", "")).strip()
     sep = str(data_dict.get("SEP", "")).strip()
-    iter_val = str(data_dict.get("Jumlah Iter", ""))
     obat = str(data_dict.get("Daftar Obat", ""))
     
-    row_data_lokal = [waktu, nama, rm, tgl_resep, dokter, kartu, sep, iter_val, obat]
-    row_data_gsheets = [waktu, nama, f"'{rm}", tgl_resep, dokter, f"'{kartu}", f"'{sep}", iter_val, obat]
+    if is_prb:
+        row_data_lokal = [waktu, nama, rm, tgl_resep, dokter, kartu, sep, obat]
+        row_data_gsheets = [waktu, nama, f"'{rm}", tgl_resep, dokter, f"'{kartu}", f"'{sep}", obat]
+    else:
+        iter_val = str(data_dict.get("Jumlah Iter", ""))
+        row_data_lokal = [waktu, nama, rm, tgl_resep, dokter, kartu, sep, iter_val, obat]
+        row_data_gsheets = [waktu, nama, f"'{rm}", tgl_resep, dokter, f"'{kartu}", f"'{sep}", iter_val, obat]
     
     sheet_target = sheet_prb if is_prb else sheet_iter
     db_lokal_key = 'db_lokal_prb' if is_prb else 'db_lokal_iter'
@@ -124,26 +131,25 @@ def simpan_data(data_dict, is_prb):
         st.session_state[db_lokal_key] = [r for r in st.session_state[db_lokal_key] if not (str(r[2]).strip() == rm and str(r[3]).strip() == tgl_resep.strip())]
         st.session_state[db_lokal_key].append(row_data_lokal)
 
-# FIX: Paksa semua kolom ID / Nomor dibaca sebagai Teks murni (Str) agar angka 0 di depan tidak terpotong
 def ambil_semua_data(is_prb):
     sheet_target = sheet_prb if is_prb else sheet_iter
     db_lokal_key = 'db_lokal_prb' if is_prb else 'db_lokal_iter'
-    
-    kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
+    kolom_standar = KOLOM_PRB if is_prb else KOLOM_ITER
     
     if sheet_target: 
         try:
             data_mentah = sheet_target.get_all_values()
             if len(data_mentah) > 1:
                 df = pd.DataFrame(data_mentah[1:], columns=data_mentah[0])
+                df = df.loc[:, ~df.columns.duplicated()] 
                 for col in ["RM", "No. Kartu", "SEP", "Jumlah Iter"]:
-                    if col in df.columns:
-                        df[col] = df[col].astype(str).str.replace("'", "", regex=False).str.strip()
+                    if col in df.columns: df[col] = df[col].astype(str).str.replace("'", "", regex=False).str.strip()
                 return df
         except: pass
-        return pd.DataFrame(sheet_target.get_all_records()).astype(str)
+        df_fb = pd.DataFrame(sheet_target.get_all_records()).astype(str)
+        return df_fb.loc[:, ~df_fb.columns.duplicated()]
         
-    return pd.DataFrame(st.session_state[db_lokal_key], columns=kolom).astype(str)
+    return pd.DataFrame(st.session_state[db_lokal_key], columns=kolom_standar).astype(str)
 
 def cari_kolom(df_columns, keywords, excludes=[]):
     for kw in keywords:
@@ -181,8 +187,7 @@ def parse_db_obat(db_string, is_prb):
                 signa = m_paren.group(1).strip()
                 nama = nama[:m_paren.start()].strip()
 
-        if is_prb:
-            status_baru = status_lama
+        if is_prb: status_baru = status_lama
         else:
             status_baru = "🟢 det orig"
             sl = status_lama.lower()
@@ -300,6 +305,36 @@ with st.sidebar:
     
     st.metric(label=f"Resep {('PRB' if is_prb else 'Iter')} Hari Ini", value=f"{total_hari_ini} Resep", delta="Aktif")
     st.markdown(f'<div class="status-box status-{"success" if sheet_iter else "warning"}">{"✅" if sheet_iter else "⚠️"} {connection_status}</div>', unsafe_allow_html=True)
+    
+    # --- FITUR GRAFIK TREN 7 HARI ---
+    st.markdown("---")
+    st.markdown(f"<p style='font-size: 14px; font-weight: 600; margin-bottom: 5px; color: #94A3B8;'>Tren 7 Hari Terakhir ({'PRB' if is_prb else 'Iter'})</p>", unsafe_allow_html=True)
+    
+    if not df_data.empty and col_tgl_input:
+        df_chart = df_data.copy()
+        df_chart[col_tgl_input] = pd.to_datetime(df_chart[col_tgl_input], errors='coerce')
+        
+        hari_ini = get_waktu_sekarang().date()
+        tujuh_hari_lalu = hari_ini - timedelta(days=6)
+        
+        mask_7_hari = (df_chart[col_tgl_input].dt.date >= tujuh_hari_lalu) & (df_chart[col_tgl_input].dt.date <= hari_ini)
+        df_7_hari = df_chart.loc[mask_7_hari]
+        
+        list_tanggal = [(tujuh_hari_lalu + timedelta(days=i)).strftime('%d %b') for i in range(7)]
+        df_lengkap = pd.DataFrame({'Tanggal': list_tanggal})
+        
+        if not df_7_hari.empty:
+            df_7_hari['Tanggal'] = df_7_hari[col_tgl_input].dt.strftime('%d %b')
+            tren_harian = df_7_hari.groupby('Tanggal').size().reset_index(name='Jumlah Pasien')
+            df_final = pd.merge(df_lengkap, tren_harian, on='Tanggal', how='left').fillna(0)
+        else:
+            df_final = df_lengkap
+            df_final['Jumlah Pasien'] = 0
+            
+        df_final = df_final.set_index('Tanggal')
+        st.bar_chart(df_final, color="#3B82F6", height=150)
+    else:
+        st.info("Belum ada data.")
 
 opsi_status_iter = ["🟢 det orig", "🟡 det", "🔴 ne det", "🔵 det iter 1x", "🟣 det iter 2x", "🟤 det iter 3x"]
 def get_col_config():
@@ -351,7 +386,6 @@ with tab1:
             tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_teks")
             dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_teks")
             if not is_prb: iter_p = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_teks")
-            else: iter_p = ""
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat")
@@ -376,9 +410,12 @@ with tab1:
                 obat_siap_cetak = edited_df_obat[edited_df_obat['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
                 teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak])
                 
-                simpan_data({"Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, "Jumlah Iter": iter_p, "Daftar Obat": teks_db}, is_prb)
+                data_dict = {"Nama Pasien": nama_p, "No. RM": rm_p, "Tanggal Resep Asli": tgl_r.strftime("%Y-%m-%d"), "Nama Dokter": dokter_p, "No. Kartu": kartu_p, "SEP": sep_p, "Daftar Obat": teks_db}
+                if not is_prb: data_dict["Jumlah Iter"] = iter_p
                 
-                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p, "obat_list": obat_siap_cetak, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
+                simpan_data(data_dict, is_prb)
+                
+                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p if not is_prb else "", "obat_list": obat_siap_cetak, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
                 
                 save_bar.progress(100, text="Selesai!")
                 time.sleep(0.4)
@@ -415,7 +452,6 @@ with tab2:
             tgl_r2 = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_pdf")
             dokter_p2 = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_pdf")
             if not is_prb: iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_pdf")
-            else: iter_p2 = ""
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat (PDF)")
@@ -440,9 +476,12 @@ with tab2:
                 obat_siap_cetak2 = edited_df_obat2[edited_df_obat2['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
                 teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak2])
                 
-                simpan_data({"Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, "Jumlah Iter": iter_p2, "Daftar Obat": teks_db}, is_prb)
+                data_dict = {"Nama Pasien": nama_p2, "No. RM": rm_p2, "Tanggal Resep Asli": tgl_r2.strftime("%Y-%m-%d"), "Nama Dokter": dokter_p2, "No. Kartu": kartu_p2, "SEP": sep_p2, "Daftar Obat": teks_db}
+                if not is_prb: data_dict["Jumlah Iter"] = iter_p2
                 
-                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2, "obat_list": obat_siap_cetak2, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
+                simpan_data(data_dict, is_prb)
+                
+                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2 if not is_prb else "", "obat_list": obat_siap_cetak2, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
                 
                 save_bar2.progress(100, text="Selesai!")
                 time.sleep(0.4)
@@ -468,7 +507,7 @@ with tab3:
         with c3:
             m_tgl = st.date_input("Tanggal Resep Asli")
             m_dok = st.text_input("Nama Dokter")
-            m_iter = st.number_input("Jumlah Iter", min_value=0) if not is_prb else ""
+            if not is_prb: m_iter = st.number_input("Jumlah Iter", min_value=0)
         m_obat = st.text_area("Daftar Obat (Tiap baris tekan Enter):", height=150)
         
         btn_manual = st.form_submit_button("💾 Simpan Data Resep (Manual)")
@@ -476,7 +515,10 @@ with tab3:
             save_bar3 = st.progress(0, text="Menyimpan data manual...")
             time.sleep(0.5)
             if m_nama and m_obat:
-                simpan_data({"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Jumlah Iter": m_iter, "Daftar Obat": m_obat.replace('\n', ' | ')}, is_prb)
+                data_dict = {"Nama Pasien": m_nama, "No. RM": m_rm, "Tanggal Resep Asli": m_tgl.strftime("%Y-%m-%d"), "Nama Dokter": m_dok, "No. Kartu": m_kartu, "SEP": m_sep, "Daftar Obat": m_obat.replace('\n', ' | ')}
+                if not is_prb: data_dict["Jumlah Iter"] = m_iter
+                
+                simpan_data(data_dict, is_prb)
                 save_bar3.progress(100, text="Selesai!")
                 time.sleep(0.4)
                 save_bar3.empty()
@@ -498,8 +540,8 @@ with tab4:
         col_dok_db = cari_kolom(df_data.columns, ["dokter", "dr"]) or df_data.columns[4]
         col_kartu_db = cari_kolom(df_data.columns, ["kartu", "bpjs"]) or df_data.columns[5]
         col_sep_db = cari_kolom(df_data.columns, ["sep"]) or df_data.columns[6]
-        col_iter_db = cari_kolom(df_data.columns, ["iter", "jumlah"]) or df_data.columns[7]
-        col_obat_db = cari_kolom(df_data.columns, ["obat", "daftar", "rincian", "resep"]) or df_data.columns[8]
+        col_obat_db = cari_kolom(df_data.columns, ["obat", "daftar", "rincian", "resep"]) or (df_data.columns[7] if is_prb else df_data.columns[8])
+        if not is_prb: col_iter_db = cari_kolom(df_data.columns, ["iter", "jumlah"]) or df_data.columns[7]
         
         if rm_cari:
             df_match = df_data[df_data[col_rm_db].astype(str).str.contains(rm_cari, case=False)]
@@ -507,9 +549,9 @@ with tab4:
             if not df_match.empty:
                 opsi = []
                 for _, r in df_match.iterrows():
-                    tgl_text = str(r[col_tgl_db]) if pd.notna(r[col_tgl_db]) else "Unknown Date"
-                    nama_text = str(r[col_nama_db]) if pd.notna(r[col_nama_db]) else "Unknown Pasien"
-                    dok_text = str(r[col_dok_db]) if pd.notna(r[col_dok_db]) else "Unknown Dokter"
+                    tgl_text = str(r.get(col_tgl_db, "Unknown Date"))
+                    nama_text = str(r.get(col_nama_db, "Unknown Pasien"))
+                    dok_text = str(r.get(col_dok_db, "Unknown Dokter"))
                     opsi.append(f"{tgl_text} - {nama_text} (Dokter: {dok_text})")
                     
                 pilihan_riwayat = st.selectbox("📂 Pilih Riwayat Resep Sebelumnya:", opsi)
@@ -522,15 +564,15 @@ with tab4:
                     bar_tarik.progress(40, text="Memetakan susunan kolom ke formulir...")
                     
                     st.session_state['hasil_ekstrak_iter'] = {
-                        "Nama Pasien": str(row_terpilih[col_nama_db]) if pd.notna(row_terpilih[col_nama_db]) else "",
-                        "No. RM": str(row_terpilih[col_rm_db]) if pd.notna(row_terpilih[col_rm_db]) else "",
-                        "Tanggal Resep Asli": str(row_terpilih[col_tgl_db]) if pd.notna(row_terpilih[col_tgl_db]) else "",
-                        "Nama Dokter": str(row_terpilih[col_dok_db]) if pd.notna(row_terpilih[col_dok_db]) else "",
-                        "No. Kartu": str(row_terpilih[col_kartu_db]) if pd.notna(row_terpilih[col_kartu_db]) else "",
-                        "SEP": str(row_terpilih[col_sep_db]) if pd.notna(row_terpilih[col_sep_db]) else "",
-                        "Jumlah Iter": str(row_terpilih[col_iter_db]) if pd.notna(row_terpilih[col_iter_db]) else 2,
-                        "Daftar Obat": str(row_terpilih[col_obat_db]) if pd.notna(row_terpilih[col_obat_db]) else ""
+                        "Nama Pasien": str(row_terpilih.get(col_nama_db, "")),
+                        "No. RM": str(row_terpilih.get(col_rm_db, "")),
+                        "Tanggal Resep Asli": str(row_terpilih.get(col_tgl_db, "")),
+                        "Nama Dokter": str(row_terpilih.get(col_dok_db, "")),
+                        "No. Kartu": str(row_terpilih.get(col_kartu_db, "")),
+                        "SEP": str(row_terpilih.get(col_sep_db, "")),
+                        "Daftar Obat": str(row_terpilih.get(col_obat_db, ""))
                     }
+                    if not is_prb: st.session_state['hasil_ekstrak_iter']["Jumlah Iter"] = str(row_terpilih.get(col_iter_db, 2))
                     
                     bar_tarik.progress(70, text="Mengekstrak rincian & status obat...")
                     db_obat_str = st.session_state['hasil_ekstrak_iter']['Daftar Obat']
@@ -554,28 +596,26 @@ with tab4:
         st.subheader(f"👤 Identitas Pasien ({'PRB' if is_prb else 'Iterasi'})")
         c1, c2, c3 = st.columns(3)
         with c1:
-            nama_p3 = st.text_input("Nama Pasien", value=hasil_it["Nama Pasien"], key="p_nama_it")
-            rm_p3 = st.text_input("No. RM", value=hasil_it["No. RM"], key="p_rm_it")
+            nama_p3 = st.text_input("Nama Pasien", value=hasil_it.get("Nama Pasien", ""), key="p_nama_it")
+            rm_p3 = st.text_input("No. RM", value=hasil_it.get("No. RM", ""), key="p_rm_it")
         with c2:
-            kartu_p3 = st.text_input("No. Kartu BPJS", value=hasil_it["No. Kartu"], key="p_kartu_it")
-            sep_p3 = st.text_input("No. SEP", value=hasil_it["SEP"], key="p_sep_it")
+            kartu_p3 = st.text_input("No. Kartu BPJS", value=hasil_it.get("No. Kartu", ""), key="p_kartu_it")
+            sep_p3 = st.text_input("No. SEP", value=hasil_it.get("SEP", ""), key="p_sep_it")
         with c3:
             try:
-                tgl_str = str(hasil_it["Tanggal Resep Asli"])
+                tgl_str = str(hasil_it.get("Tanggal Resep Asli", ""))
                 if tgl_str == "": tgl_lama = get_waktu_sekarang().date()
                 else: tgl_lama = datetime.strptime(tgl_str, "%Y-%m-%d").date()
             except:
                 tgl_lama = get_waktu_sekarang().date()
                 
             tgl_r3 = st.date_input("Tanggal Resep Asli", value=tgl_lama, key="p_tgl_it")
-            dokter_p3 = st.text_input("Nama Dokter", value=hasil_it["Nama Dokter"], key="p_dok_it")
+            dokter_p3 = st.text_input("Nama Dokter", value=hasil_it.get("Nama Dokter", ""), key="p_dok_it")
             
             if not is_prb:
-                try: iter_val = int(float(hasil_it["Jumlah Iter"]))
+                try: iter_val = int(float(hasil_it.get("Jumlah Iter", 2)))
                 except: iter_val = 2
                 iter_p3 = st.number_input("Jumlah Iter", min_value=0, value=iter_val, key="p_iter_it")
-            else:
-                iter_p3 = ""
             
         st.subheader("💊 Rincian Obat")
         if not st.session_state['df_obat_iter'].empty:
@@ -598,9 +638,12 @@ with tab4:
                 obat_siap_cetak3 = edited_df_obat3[edited_df_obat3['Hapus'] == False].rename(columns={"Nama Obat": "nama", "Aturan Pakai": "signa", "Jumlah": "jumlah", "Status": "status"}).to_dict('records')
                 teks_db = " | ".join([f"{o['nama']} ({o['signa']} No. {o['jumlah']}) [{o['status']}]" for o in obat_siap_cetak3])
                 
-                simpan_data({"Nama Pasien": nama_p3, "No. RM": rm_p3, "Tanggal Resep Asli": tgl_r3.strftime("%Y-%m-%d"), "Nama Dokter": dokter_p3, "No. Kartu": kartu_p3, "SEP": sep_p3, "Jumlah Iter": iter_p3, "Daftar Obat": teks_db}, is_prb)
+                data_dict = {"Nama Pasien": nama_p3, "No. RM": rm_p3, "Tanggal Resep Asli": tgl_r3.strftime("%Y-%m-%d"), "Nama Dokter": dokter_p3, "No. Kartu": kartu_p3, "SEP": sep_p3, "Daftar Obat": teks_db}
+                if not is_prb: data_dict["Jumlah Iter"] = iter_p3
                 
-                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p3, "rm": rm_p3, "tgl_resep": tgl_r3.strftime("%d %B %Y"), "dokter": dokter_p3, "kartu": kartu_p3, "sep": sep_p3, "iter": iter_p3, "obat_list": obat_siap_cetak3, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
+                simpan_data(data_dict, is_prb)
+                
+                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p3, "rm": rm_p3, "tgl_resep": tgl_r3.strftime("%d %B %Y"), "dokter": dokter_p3, "kartu": kartu_p3, "sep": sep_p3, "iter": iter_p3 if not is_prb else "", "obat_list": obat_siap_cetak3, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
                 
                 save_bar4.progress(100, text="Selesai!")
                 time.sleep(0.4)
@@ -773,7 +816,6 @@ with tab6:
             try:
                 df_cari = df_data[df_data.apply(lambda row: row.astype(str).str.contains(pencarian, case=False).any(), axis=1)]
                 if not df_cari.empty: 
-                    if is_prb and "Jumlah Iter" in df_cari.columns: df_cari = df_cari.drop(columns=["Jumlah Iter"])
                     st.dataframe(df_cari, use_container_width=True)
                 else: st.warning("Data tidak ditemukan.")
             except: pass
@@ -795,13 +837,13 @@ with tab6:
         
         if not df_laporan.empty:
             df_laporan.insert(0, 'Hapus', False)
-            if is_prb and "Jumlah Iter" in df_laporan.columns:
-                df_laporan = df_laporan.drop(columns=["Jumlah Iter"])
+            
+            df_laporan = df_laporan.loc[:, ~df_laporan.columns.duplicated()]
             
             edited_df_laporan = st.data_editor(
                 df_laporan,
                 column_config={"Hapus": st.column_config.CheckboxColumn("Pilih Hapus", default=False)},
-                disabled=df_laporan.columns.drop('Hapus'),
+                disabled=df_laporan.columns.drop('Hapus').tolist(),
                 hide_index=True,
                 use_container_width=True,
                 key="editor_laporan_data"
