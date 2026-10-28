@@ -28,7 +28,6 @@ st.markdown("""
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 800; }
     
-    /* Segmented Control untuk Modul Sidebar */
     .stRadio > div[role="radiogroup"] { flex-direction: row; background-color: #1E293B; padding: 5px; border-radius: 12px; gap: 5px; }
     .stRadio > div[role="radiogroup"] > label { flex: 1; text-align: center; background-color: transparent; border-radius: 8px; padding: 10px 0; cursor: pointer; transition: all 0.2s ease; }
     .stRadio > div[role="radiogroup"] > label:hover { background-color: rgba(255,255,255,0.1); }
@@ -90,7 +89,6 @@ def pastikan_database_sehat(sht):
 pastikan_database_sehat(sheet_iter)
 pastikan_database_sehat(sheet_prb)
 
-# FIX: Menyimpan data ke Sheets sebagai Teks mutlak (Mencegah RM & Kartu terpotong 0 di depan)
 def simpan_data(data_dict, is_prb):
     waktu = get_waktu_sekarang().strftime("%Y-%m-%d %H:%M:%S")
     nama = str(data_dict.get("Nama Pasien", ""))
@@ -102,10 +100,7 @@ def simpan_data(data_dict, is_prb):
     iter_val = str(data_dict.get("Jumlah Iter", ""))
     obat = str(data_dict.get("Daftar Obat", ""))
     
-    # Array untuk local state (tanpa modifikasi)
     row_data_lokal = [waktu, nama, rm, tgl_resep, dokter, kartu, sep, iter_val, obat]
-    
-    # Array untuk Google Sheets (Disisipkan kutip satu ' khusus angka penting agar 0 tidak hilang)
     row_data_gsheets = [waktu, nama, f"'{rm}", tgl_resep, dokter, f"'{kartu}", f"'{sep}", iter_val, obat]
     
     sheet_target = sheet_prb if is_prb else sheet_iter
@@ -119,7 +114,6 @@ def simpan_data(data_dict, is_prb):
                 rm_key = next((k for k in keys if 'rm' in k.lower()), keys[2] if len(keys) > 2 else 'RM')
                 tgl_key = next((k for k in keys if 'tanggal' in k.lower() and 'input' not in k.lower()), keys[3] if len(keys) > 3 else 'Tanggal Resep Asli')
                 
-                # Cek apakah RM dan Tanggal sama untuk replace (update) data
                 if str(rec.get(rm_key, "")).strip() == rm and str(rec.get(tgl_key, "")).strip() == tgl_resep.strip():
                     try: sheet_target.delete_rows(i + 2)
                     except AttributeError: sheet_target.delete_row(i + 2)
@@ -130,13 +124,26 @@ def simpan_data(data_dict, is_prb):
         st.session_state[db_lokal_key] = [r for r in st.session_state[db_lokal_key] if not (str(r[2]).strip() == rm and str(r[3]).strip() == tgl_resep.strip())]
         st.session_state[db_lokal_key].append(row_data_lokal)
 
+# FIX: Paksa semua kolom ID / Nomor dibaca sebagai Teks murni (Str) agar angka 0 di depan tidak terpotong
 def ambil_semua_data(is_prb):
     sheet_target = sheet_prb if is_prb else sheet_iter
     db_lokal_key = 'db_lokal_prb' if is_prb else 'db_lokal_iter'
     
-    if sheet_target: return pd.DataFrame(sheet_target.get_all_records())
     kolom = ["Tanggal Input", "Nama Pasien", "RM", "Tanggal Resep Asli", "Nama Dokter", "No. Kartu", "SEP", "Jumlah Iter", "Daftar Obat"]
-    return pd.DataFrame(st.session_state[db_lokal_key], columns=kolom)
+    
+    if sheet_target: 
+        try:
+            data_mentah = sheet_target.get_all_values()
+            if len(data_mentah) > 1:
+                df = pd.DataFrame(data_mentah[1:], columns=data_mentah[0])
+                for col in ["RM", "No. Kartu", "SEP", "Jumlah Iter"]:
+                    if col in df.columns:
+                        df[col] = df[col].astype(str).str.replace("'", "", regex=False).str.strip()
+                return df
+        except: pass
+        return pd.DataFrame(sheet_target.get_all_records()).astype(str)
+        
+    return pd.DataFrame(st.session_state[db_lokal_key], columns=kolom).astype(str)
 
 def cari_kolom(df_columns, keywords, excludes=[]):
     for kw in keywords:
