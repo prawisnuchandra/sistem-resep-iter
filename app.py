@@ -33,7 +33,7 @@ st.markdown("""
     .stRadio > div[role="radiogroup"] > label { flex: 1; text-align: center; background-color: transparent; border-radius: 8px; padding: 10px 0; cursor: pointer; transition: all 0.2s ease; }
     .stRadio > div[role="radiogroup"] > label:hover { background-color: rgba(255,255,255,0.1); }
     .stRadio > div[role="radiogroup"] > label[data-checked="true"] { background: linear-gradient(135deg, #4F46E5, #3B82F6); box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
-    .stRadio > div[role="radiogroup"] > label > div:first-child { display: none; } /* Sembunyikan bulatan radio */
+    .stRadio > div[role="radiogroup"] > label > div:first-child { display: none; }
     .stRadio > div[role="radiogroup"] > label > div:last-child { font-weight: 800 !important; color: white !important; font-size: 16px; margin: 0; padding: 0; }
     
     .stButton>button { background: linear-gradient(135deg, #4F46E5, #3B82F6); color: white !important; border-radius: 12px; padding: 12px 24px; font-weight: 800; border: none; box-shadow: 0 6px 0 #312E81, 0 15px 20px rgba(0,0,0,0.2); transition: all 0.1s; text-transform: uppercase; letter-spacing: 1px; }
@@ -90,12 +90,23 @@ def pastikan_database_sehat(sht):
 pastikan_database_sehat(sheet_iter)
 pastikan_database_sehat(sheet_prb)
 
+# FIX: Menyimpan data ke Sheets sebagai Teks mutlak (Mencegah RM & Kartu terpotong 0 di depan)
 def simpan_data(data_dict, is_prb):
-    row_data = [
-        get_waktu_sekarang().strftime("%Y-%m-%d %H:%M:%S"), str(data_dict.get("Nama Pasien", "")), str(data_dict.get("No. RM", "")), 
-        str(data_dict.get("Tanggal Resep Asli", "")), str(data_dict.get("Nama Dokter", "")), str(data_dict.get("No. Kartu", "")), 
-        str(data_dict.get("SEP", "")), str(data_dict.get("Jumlah Iter", "")), str(data_dict.get("Daftar Obat", ""))
-    ]
+    waktu = get_waktu_sekarang().strftime("%Y-%m-%d %H:%M:%S")
+    nama = str(data_dict.get("Nama Pasien", ""))
+    rm = str(data_dict.get("No. RM", "")).strip()
+    tgl_resep = str(data_dict.get("Tanggal Resep Asli", ""))
+    dokter = str(data_dict.get("Nama Dokter", ""))
+    kartu = str(data_dict.get("No. Kartu", "")).strip()
+    sep = str(data_dict.get("SEP", "")).strip()
+    iter_val = str(data_dict.get("Jumlah Iter", ""))
+    obat = str(data_dict.get("Daftar Obat", ""))
+    
+    # Array untuk local state (tanpa modifikasi)
+    row_data_lokal = [waktu, nama, rm, tgl_resep, dokter, kartu, sep, iter_val, obat]
+    
+    # Array untuk Google Sheets (Disisipkan kutip satu ' khusus angka penting agar 0 tidak hilang)
+    row_data_gsheets = [waktu, nama, f"'{rm}", tgl_resep, dokter, f"'{kartu}", f"'{sep}", iter_val, obat]
     
     sheet_target = sheet_prb if is_prb else sheet_iter
     db_lokal_key = 'db_lokal_prb' if is_prb else 'db_lokal_iter'
@@ -108,15 +119,16 @@ def simpan_data(data_dict, is_prb):
                 rm_key = next((k for k in keys if 'rm' in k.lower()), keys[2] if len(keys) > 2 else 'RM')
                 tgl_key = next((k for k in keys if 'tanggal' in k.lower() and 'input' not in k.lower()), keys[3] if len(keys) > 3 else 'Tanggal Resep Asli')
                 
-                if str(rec.get(rm_key, "")).strip() == str(data_dict["No. RM"]).strip() and str(rec.get(tgl_key, "")).strip() == str(data_dict["Tanggal Resep Asli"]).strip():
+                # Cek apakah RM dan Tanggal sama untuk replace (update) data
+                if str(rec.get(rm_key, "")).strip() == rm and str(rec.get(tgl_key, "")).strip() == tgl_resep.strip():
                     try: sheet_target.delete_rows(i + 2)
                     except AttributeError: sheet_target.delete_row(i + 2)
                     break 
         except: pass
-        sheet_target.append_row(row_data)
+        sheet_target.append_row(row_data_gsheets, value_input_option='USER_ENTERED')
     else: 
-        st.session_state[db_lokal_key] = [r for r in st.session_state[db_lokal_key] if not (str(r[2]).strip() == str(data_dict["No. RM"]).strip() and str(r[3]).strip() == str(data_dict["Tanggal Resep Asli"]).strip())]
-        st.session_state[db_lokal_key].append(row_data)
+        st.session_state[db_lokal_key] = [r for r in st.session_state[db_lokal_key] if not (str(r[2]).strip() == rm and str(r[3]).strip() == tgl_resep.strip())]
+        st.session_state[db_lokal_key].append(row_data_lokal)
 
 def ambil_semua_data(is_prb):
     sheet_target = sheet_prb if is_prb else sheet_iter
@@ -331,10 +343,8 @@ with tab1:
         with c3:
             tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_teks")
             dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_teks")
-            if not is_prb:
-                iter_p = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_teks")
-            else:
-                iter_p = ""
+            if not is_prb: iter_p = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_teks")
+            else: iter_p = ""
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat")
@@ -397,10 +407,8 @@ with tab2:
         with c3:
             tgl_r2 = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_pdf")
             dokter_p2 = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_pdf")
-            if not is_prb:
-                iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_pdf")
-            else:
-                iter_p2 = ""
+            if not is_prb: iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_pdf")
+            else: iter_p2 = ""
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat (PDF)")
