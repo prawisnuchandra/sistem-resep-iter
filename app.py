@@ -18,6 +18,18 @@ WIB = timezone(timedelta(hours=7))
 def get_waktu_sekarang():
     return datetime.now(WIB)
 
+def format_tgl_indo(tgl_obj_or_str):
+    if not tgl_obj_or_str: return ""
+    try:
+        if isinstance(tgl_obj_or_str, str):
+            tgl_obj = datetime.strptime(tgl_obj_or_str, "%Y-%m-%d")
+        else:
+            tgl_obj = tgl_obj_or_str
+        bulan_indo = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+        return f"{tgl_obj.day} {bulan_indo[tgl_obj.month]} {tgl_obj.year}"
+    except:
+        return str(tgl_obj_or_str)
+
 # ==========================================
 # 1. KONFIGURASI UI/UX
 # ==========================================
@@ -365,8 +377,18 @@ with tab1:
                 my_bar.progress(percent_complete + 1, text=f"Memproses data... {percent_complete}%")
             my_bar.empty() 
             
-            st.session_state['hasil_ekstrak_teks'] = parse_teks_resep(teks_input_user, is_prb)
-            st.session_state['df_obat_teks'] = pd.DataFrame(st.session_state['hasil_ekstrak_teks']["list_obat"])
+            hasil_ekstrak = parse_teks_resep(teks_input_user, is_prb)
+            st.session_state['hasil_ekstrak_teks'] = hasil_ekstrak
+            st.session_state['df_obat_teks'] = pd.DataFrame(hasil_ekstrak["list_obat"])
+            
+            # FIX CACHE: Memaksa Streamlit mereset state dari kotak input
+            st.session_state['p_nama_teks'] = hasil_ekstrak["nama"]
+            st.session_state['p_rm_teks'] = hasil_ekstrak["rm"]
+            st.session_state['p_kartu_teks'] = hasil_ekstrak["no_kartu"]
+            st.session_state['p_sep_teks'] = hasil_ekstrak["sep"]
+            st.session_state['p_tgl_teks'] = hasil_ekstrak["tgl_resep"]
+            st.session_state['p_dok_teks'] = hasil_ekstrak["dokter"]
+            if not is_prb: st.session_state['p_iter_teks'] = hasil_ekstrak["iter"]
         else:
             st.warning("⚠️ Kotak teks masih kosong!")
 
@@ -376,15 +398,15 @@ with tab1:
         st.subheader("👤 Identitas Pasien")
         c1, c2, c3 = st.columns(3)
         with c1:
-            nama_p = st.text_input("Nama Pasien", value=hasil["nama"], key="p_nama_teks")
-            rm_p = st.text_input("No. RM", value=hasil["rm"], key="p_rm_teks")
+            nama_p = st.text_input("Nama Pasien", key="p_nama_teks")
+            rm_p = st.text_input("No. RM", key="p_rm_teks")
         with c2:
-            kartu_p = st.text_input("No. Kartu BPJS", value=hasil["no_kartu"], key="p_kartu_teks")
-            sep_p = st.text_input("No. SEP", value=hasil["sep"], key="p_sep_teks")
+            kartu_p = st.text_input("No. Kartu BPJS", key="p_kartu_teks")
+            sep_p = st.text_input("No. SEP", key="p_sep_teks")
         with c3:
-            tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_teks")
-            dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_teks")
-            if not is_prb: iter_p = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_teks")
+            tgl_r = st.date_input("Tanggal Resep Asli", key="p_tgl_teks")
+            dokter_p = st.text_input("Nama Dokter", key="p_dok_teks")
+            if not is_prb: iter_p = st.number_input("Jumlah Iter", min_value=0, key="p_iter_teks")
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat")
@@ -414,7 +436,7 @@ with tab1:
                 
                 simpan_data(data_dict, is_prb)
                 
-                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p, "rm": rm_p, "tgl_resep": tgl_r.strftime("%d %B %Y"), "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p if not is_prb else "", "obat_list": obat_siap_cetak, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
+                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p, "rm": rm_p, "tgl_resep": format_tgl_indo(tgl_r), "dokter": dokter_p, "kartu": kartu_p, "sep": sep_p, "iter": iter_p if not is_prb else "", "obat_list": obat_siap_cetak, "tgl_copy": format_tgl_indo(get_waktu_sekarang())}
                 
                 save_bar.progress(100, text="Selesai!")
                 time.sleep(0.4)
@@ -433,24 +455,34 @@ with tab2:
     
     if file_upload:
         if 'hasil_ekstrak_pdf' not in st.session_state or st.session_state.get('last_file_pdf') != file_upload.name:
-            st.session_state['hasil_ekstrak_pdf'] = ekstrak_data_pdf(file_upload, is_prb)
-            st.session_state['df_obat_pdf'] = pd.DataFrame(st.session_state['hasil_ekstrak_pdf']["list_obat"])
+            hasil_ekstrak2 = ekstrak_data_pdf(file_upload, is_prb)
+            st.session_state['hasil_ekstrak_pdf'] = hasil_ekstrak2
+            st.session_state['df_obat_pdf'] = pd.DataFrame(hasil_ekstrak2["list_obat"])
             st.session_state['last_file_pdf'] = file_upload.name
+            
+            # FIX CACHE untuk PDF
+            st.session_state['p_nama_pdf'] = hasil_ekstrak2["nama"]
+            st.session_state['p_rm_pdf'] = hasil_ekstrak2["rm"]
+            st.session_state['p_kartu_pdf'] = hasil_ekstrak2["no_kartu"]
+            st.session_state['p_sep_pdf'] = hasil_ekstrak2["sep"]
+            st.session_state['p_tgl_pdf'] = hasil_ekstrak2["tgl_resep"]
+            st.session_state['p_dok_pdf'] = hasil_ekstrak2["dokter"]
+            if not is_prb: st.session_state['p_iter_pdf'] = hasil_ekstrak2["iter"]
         
         hasil = st.session_state['hasil_ekstrak_pdf']
         
         st.subheader("👤 Identitas Pasien (PDF)")
         c1, c2, c3 = st.columns(3)
         with c1:
-            nama_p2 = st.text_input("Nama Pasien", value=hasil["nama"], key="p_nama_pdf")
-            rm_p2 = st.text_input("No. RM", value=hasil["rm"], key="p_rm_pdf")
+            nama_p2 = st.text_input("Nama Pasien", key="p_nama_pdf")
+            rm_p2 = st.text_input("No. RM", key="p_rm_pdf")
         with c2:
-            kartu_p2 = st.text_input("No. Kartu BPJS", value=hasil["no_kartu"], key="p_kartu_pdf")
-            sep_p2 = st.text_input("No. SEP", value=hasil["sep"], key="p_sep_pdf")
+            kartu_p2 = st.text_input("No. Kartu BPJS", key="p_kartu_pdf")
+            sep_p2 = st.text_input("No. SEP", key="p_sep_pdf")
         with c3:
-            tgl_r2 = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_pdf")
-            dokter_p2 = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_pdf")
-            if not is_prb: iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_pdf")
+            tgl_r2 = st.date_input("Tanggal Resep Asli", key="p_tgl_pdf")
+            dokter_p2 = st.text_input("Nama Dokter", key="p_dok_pdf")
+            if not is_prb: iter_p2 = st.number_input("Jumlah Iter", min_value=0, key="p_iter_pdf")
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat (PDF)")
@@ -480,7 +512,7 @@ with tab2:
                 
                 simpan_data(data_dict, is_prb)
                 
-                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p2, "rm": rm_p2, "tgl_resep": tgl_r2.strftime("%d %B %Y"), "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2 if not is_prb else "", "obat_list": obat_siap_cetak2, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
+                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p2, "rm": rm_p2, "tgl_resep": format_tgl_indo(tgl_r2), "dokter": dokter_p2, "kartu": kartu_p2, "sep": sep_p2, "iter": iter_p2 if not is_prb else "", "obat_list": obat_siap_cetak2, "tgl_copy": format_tgl_indo(get_waktu_sekarang())}
                 
                 save_bar2.progress(100, text="Selesai!")
                 time.sleep(0.4)
@@ -642,7 +674,7 @@ with tab4:
                 
                 simpan_data(data_dict, is_prb)
                 
-                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p3, "rm": rm_p3, "tgl_resep": tgl_r3.strftime("%d %B %Y"), "dokter": dokter_p3, "kartu": kartu_p3, "sep": sep_p3, "iter": iter_p3 if not is_prb else "", "obat_list": obat_siap_cetak3, "tgl_copy": get_waktu_sekarang().strftime("%d %B %Y")}
+                st.session_state['data_cetak'] = {"is_prb": is_prb, "nama": nama_p3, "rm": rm_p3, "tgl_resep": format_tgl_indo(tgl_r3), "dokter": dokter_p3, "kartu": kartu_p3, "sep": sep_p3, "iter": iter_p3 if not is_prb else "", "obat_list": obat_siap_cetak3, "tgl_copy": format_tgl_indo(get_waktu_sekarang())}
                 
                 save_bar4.progress(100, text="Selesai!")
                 time.sleep(0.4)
@@ -807,6 +839,10 @@ with tab5:
 
 # --- TAB 6: LAPORAN & PENCARIAN ---
 with tab6:
+    if st.session_state.get('show_print_success'):
+        st.success("✅ Data berhasil disiapkan! Silakan buka tab '🖨️ Pusat Cetak'.")
+        st.session_state['show_print_success'] = False
+
     if not df_data.empty:
         st.subheader("🔍 Cari Riwayat Pasien")
         pencarian = st.text_input("Masukkan Nama Pasien atau No. RM:")
@@ -835,61 +871,107 @@ with tab6:
         st.write(f"Total data ditemukan: **{len(df_laporan)} resep**")
         
         if not df_laporan.empty:
-            df_laporan.insert(0, 'Hapus', False)
-            
+            # Mengubah nama kolom Hapus menjadi Pilih agar fungsionalitasnya ganda
+            df_laporan.insert(0, 'Pilih', False)
             df_laporan = df_laporan.loc[:, ~df_laporan.columns.duplicated()]
             
             edited_df_laporan = st.data_editor(
                 df_laporan,
-                column_config={"Hapus": st.column_config.CheckboxColumn("Pilih Hapus", default=False)},
-                disabled=df_laporan.columns.drop('Hapus').tolist(),
+                column_config={"Pilih": st.column_config.CheckboxColumn("Pilih (Hapus/Print)", default=False)},
+                disabled=df_laporan.columns.drop('Pilih').tolist(),
                 hide_index=True,
                 use_container_width=True,
                 key="editor_laporan_data"
             )
             
-            baris_terpilih = edited_df_laporan[edited_df_laporan['Hapus'] == True]
+            baris_terpilih = edited_df_laporan[edited_df_laporan['Pilih'] == True]
             
             if not baris_terpilih.empty:
-                if st.button("🗑️ Hapus Data Terpilih", type="primary"):
-                    del_bar = st.progress(0, text="Menghapus data dari server...")
-                    time.sleep(0.3)
-                    
-                    col_rm_db = cari_kolom(df_data.columns, ["rm", "rekam"]) or df_data.columns[2]
-                    sheet_target = sheet_prb if is_prb else sheet_iter
-                    
-                    if sheet_target:
-                        all_records = sheet_target.get_all_records()
-                        for i in range(len(all_records) - 1, -1, -1):
-                            rec = all_records[i]
-                            keys = list(rec.keys())
-                            rec_rm_key = cari_kolom(keys, ["rm", "rekam"]) or (keys[2] if len(keys)>2 else 'RM')
-                            rec_tgl_key = cari_kolom(keys, ["input"], ["asli"]) or (keys[0] if len(keys)>0 else 'Tanggal Input')
-                            
-                            for _, row_del in baris_terpilih.iterrows():
-                                rm_del = str(row_del.get(col_rm_db, ''))
-                                rm_rec = str(rec.get(rec_rm_key, ''))
-                                tgl_del = str(row_del.get(col_tgl_input, ''))
-                                tgl_rec = str(rec.get(rec_tgl_key, ''))
+                c_act1, c_act2 = st.columns(2)
+                
+                with c_act1:
+                    if st.button("🗑️ Hapus Data Terpilih", type="primary", use_container_width=True):
+                        del_bar = st.progress(0, text="Menghapus data dari server...")
+                        time.sleep(0.3)
+                        
+                        col_rm_db = cari_kolom(df_data.columns, ["rm", "rekam"]) or df_data.columns[2]
+                        sheet_target = sheet_prb if is_prb else sheet_iter
+                        
+                        if sheet_target:
+                            all_records = sheet_target.get_all_records()
+                            for i in range(len(all_records) - 1, -1, -1):
+                                rec = all_records[i]
+                                keys = list(rec.keys())
+                                rec_rm_key = cari_kolom(keys, ["rm", "rekam"]) or (keys[2] if len(keys)>2 else 'RM')
+                                rec_tgl_key = cari_kolom(keys, ["input"], ["asli"]) or (keys[0] if len(keys)>0 else 'Tanggal Input')
                                 
-                                if tgl_rec == tgl_del and rm_rec == rm_del:
-                                    try: sheet_target.delete_rows(i + 2)
-                                    except AttributeError: sheet_target.delete_row(i + 2)
-                                    break
-                    else:
-                        db_lokal_key = 'db_lokal_prb' if is_prb else 'db_lokal_iter'
-                        st.session_state[db_lokal_key] = [
-                            r for r in st.session_state[db_lokal_key]
-                            if not any((str(r[0]) == str(row_del.get(col_tgl_input, '')) and str(r[2]) == str(row_del.get(col_rm_db, ''))) for _, row_del in baris_terpilih.iterrows())
-                        ]
-                    
-                    del_bar.progress(100, text="Selesai menghapus!")
-                    time.sleep(0.5)
-                    del_bar.empty()
-                    st.rerun()
+                                for _, row_del in baris_terpilih.iterrows():
+                                    rm_del = str(row_del.get(col_rm_db, ''))
+                                    rm_rec = str(rec.get(rec_rm_key, ''))
+                                    tgl_del = str(row_del.get(col_tgl_input, ''))
+                                    tgl_rec = str(rec.get(rec_tgl_key, ''))
+                                    
+                                    if tgl_rec == tgl_del and rm_rec == rm_del:
+                                        try: sheet_target.delete_rows(i + 2)
+                                        except AttributeError: sheet_target.delete_row(i + 2)
+                                        break
+                        else:
+                            db_lokal_key = 'db_lokal_prb' if is_prb else 'db_lokal_iter'
+                            st.session_state[db_lokal_key] = [
+                                r for r in st.session_state[db_lokal_key]
+                                if not any((str(r[0]) == str(row_del.get(col_tgl_input, '')) and str(r[2]) == str(row_del.get(col_rm_db, ''))) for _, row_del in baris_terpilih.iterrows())
+                            ]
+                        
+                        del_bar.progress(100, text="Selesai menghapus!")
+                        time.sleep(0.5)
+                        del_bar.empty()
+                        st.rerun()
 
-            # FIX CSV TERBARU: Mengubah pemisah menjadi titik koma (sep=';') dan mengaktifkan BOM (utf-8-sig)
-            csv = df_laporan.drop(columns=['Hapus']).to_csv(index=False, sep=';').encode('utf-8-sig')
+                with c_act2:
+                    # FIX FITUR BARU: Print Ulang dari Laporan
+                    if st.button("🖨️ Siapkan Print Ulang", type="secondary", use_container_width=True):
+                        if len(baris_terpilih) == 1:
+                            row_print = baris_terpilih.iloc[0]
+                            
+                            col_rm_db = cari_kolom(df_data.columns, ["rm", "rekam"]) or df_data.columns[2]
+                            col_tgl_asli_db = cari_kolom(df_data.columns, ["asli", "resep"], ["input"]) or df_data.columns[3]
+                            col_nama_db = cari_kolom(df_data.columns, ["pasien", "nama"], ["dokter"]) or df_data.columns[1]
+                            col_dok_db = cari_kolom(df_data.columns, ["dokter", "dr"]) or df_data.columns[4]
+                            col_kartu_db = cari_kolom(df_data.columns, ["kartu", "bpjs"]) or df_data.columns[5]
+                            col_sep_db = cari_kolom(df_data.columns, ["sep"]) or df_data.columns[6]
+                            col_obat_db = cari_kolom(df_data.columns, ["obat", "daftar", "rincian", "resep"]) or (df_data.columns[7] if is_prb else df_data.columns[8])
+                            if not is_prb: col_iter_db = cari_kolom(df_data.columns, ["iter", "jumlah"]) or df_data.columns[7]
+                            
+                            # Menguraikan string obat kembali ke list dictionary
+                            db_obat_str = str(row_print.get(col_obat_db, ""))
+                            obat_list_parsed = parse_db_obat(db_obat_str, is_prb)
+                            obat_siap_cetak_ulang = []
+                            for o in obat_list_parsed:
+                                obat_siap_cetak_ulang.append({
+                                    "nama": o["Nama Obat"],
+                                    "signa": o["Aturan Pakai"],
+                                    "jumlah": o["Jumlah"],
+                                    "status": o["Status"]
+                                })
+                            
+                            st.session_state['data_cetak'] = {
+                                "is_prb": is_prb,
+                                "nama": str(row_print.get(col_nama_db, "")),
+                                "rm": str(row_print.get(col_rm_db, "")),
+                                "tgl_resep": format_tgl_indo(str(row_print.get(col_tgl_asli_db, ""))),
+                                "dokter": str(row_print.get(col_dok_db, "")),
+                                "kartu": str(row_print.get(col_kartu_db, "")),
+                                "sep": str(row_print.get(col_sep_db, "")),
+                                "iter": str(row_print.get(col_iter_db, 2)) if not is_prb else "",
+                                "obat_list": obat_siap_cetak_ulang,
+                                "tgl_copy": format_tgl_indo(get_waktu_sekarang())
+                            }
+                            st.session_state['show_print_success'] = True
+                            st.rerun()
+                        else:
+                            st.warning("Pilih HANYA 1 baris pasien untuk dicetak ulang.")
+
+            csv = df_laporan.drop(columns=['Pilih']).to_csv(index=False, sep=';').encode('utf-8-sig')
             st.download_button(label="📥 Unduh Laporan Rekap (CSV Siap Excel)", data=csv, file_name=f"Laporan_{'PRB' if is_prb else 'Iter'}_{start_date}.csv", mime="text/csv")
     else:
         st.info("Database masih kosong. Belum ada resep yang diinput.")
