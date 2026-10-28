@@ -28,6 +28,14 @@ st.markdown("""
     .block-container { padding-top: 2rem; padding-bottom: 2rem; }
     h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 800; }
     
+    /* Segmented Control untuk Modul Sidebar */
+    .stRadio > div[role="radiogroup"] { flex-direction: row; background-color: #1E293B; padding: 5px; border-radius: 12px; gap: 5px; }
+    .stRadio > div[role="radiogroup"] > label { flex: 1; text-align: center; background-color: transparent; border-radius: 8px; padding: 10px 0; cursor: pointer; transition: all 0.2s ease; }
+    .stRadio > div[role="radiogroup"] > label:hover { background-color: rgba(255,255,255,0.1); }
+    .stRadio > div[role="radiogroup"] > label[data-checked="true"] { background: linear-gradient(135deg, #4F46E5, #3B82F6); box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
+    .stRadio > div[role="radiogroup"] > label > div:first-child { display: none; } /* Sembunyikan bulatan radio */
+    .stRadio > div[role="radiogroup"] > label > div:last-child { font-weight: 800 !important; color: white !important; font-size: 16px; margin: 0; padding: 0; }
+    
     .stButton>button { background: linear-gradient(135deg, #4F46E5, #3B82F6); color: white !important; border-radius: 12px; padding: 12px 24px; font-weight: 800; border: none; box-shadow: 0 6px 0 #312E81, 0 15px 20px rgba(0,0,0,0.2); transition: all 0.1s; text-transform: uppercase; letter-spacing: 1px; }
     .stButton>button:active, .stButton>button:focus { transform: translateY(6px); box-shadow: 0 0 0 #312E81, 0 5px 5px rgba(0,0,0,0.2); outline: none; }
     
@@ -55,7 +63,6 @@ def get_gsheets_connection():
         sh = gspread.authorize(creds).open("Data Copy Resep Iter")
         sheet_iter = sh.sheet1
         
-        # Buat Sheet PRB jika belum ada
         try: sheet_prb = sh.worksheet("Data PRB")
         except: 
             try: sheet_prb = sh.add_worksheet(title="Data PRB", rows="1000", cols="20")
@@ -240,18 +247,17 @@ with st.sidebar:
     st.image("https://cdn-icons-png.flaticon.com/512/2966/2966327.png", width=80)
     st.title("Pusat Kendali")
     
-    # KONTROL UTAMA: PEMILIHAN MODUL (ITER / PRB)
-    modul = st.radio("📚 Pilih Modul Aplikasi:", ["🔄 Bab ITER", "🏥 Bab PRB"])
-    is_prb = (modul == "🏥 Bab PRB")
+    st.markdown("<p style='font-size: 14px; font-weight: 600; margin-bottom: 5px; color: #94A3B8;'>Pilih Modul Aplikasi:</p>", unsafe_allow_html=True)
+    modul = st.radio("", ["🔄 ITER", "🏥 PRB"], label_visibility="collapsed")
+    is_prb = (modul == "🏥 PRB")
     
-    # Auto-Clear Form jika pindah Modul
     if st.session_state.get('last_modul') != modul:
         for k in ['hasil_ekstrak_teks', 'df_obat_teks', 'hasil_ekstrak_pdf', 'df_obat_pdf', 'hasil_ekstrak_iter', 'df_obat_iter', 'data_cetak', 'df_etiket_edit', 'last_etiket_pasien']:
             if k in st.session_state: del st.session_state[k]
         st.session_state['last_modul'] = modul
         
     components.html("""
-    <div style="font-family: 'Arial', sans-serif; text-align: center; padding: 15px; background: linear-gradient(145deg, #ffffff, #e6e6e6); box-shadow: 5px 5px 10px rgba(0,0,0,0.1); border-radius: 15px; margin-bottom: 20px;">
+    <div style="font-family: 'Arial', sans-serif; text-align: center; padding: 15px; background: linear-gradient(145deg, #ffffff, #e6e6e6); box-shadow: 5px 5px 10px rgba(0,0,0,0.1); border-radius: 15px; margin-bottom: 20px; margin-top: 15px;">
         <div id="date" style="font-size: 13px; font-weight: bold; color: #64748B; text-transform: uppercase;"></div>
         <div id="time" style="font-size: 26px; font-weight: 900; color: #2563EB; letter-spacing: 2px;"></div>
     </div>
@@ -264,7 +270,7 @@ with st.sidebar:
         }
         setInterval(updateTime, 1000); updateTime();
     </script>
-    """, height=120)
+    """, height=130)
     
     df_data = ambil_semua_data(is_prb)
     col_tgl_input = cari_kolom(df_data.columns, ["input"], ["asli"]) if not df_data.empty else None
@@ -278,7 +284,7 @@ with st.sidebar:
 
 opsi_status_iter = ["🟢 det orig", "🟡 det", "🔴 ne det", "🔵 det iter 1x", "🟣 det iter 2x", "🟤 det iter 3x"]
 def get_col_config():
-    if is_prb: return {"Hapus": st.column_config.CheckboxColumn("🗑️ Hapus", default=False), "Status": st.column_config.TextColumn("Status (Bisa diedit manual)")}
+    if is_prb: return {"Hapus": st.column_config.CheckboxColumn("🗑️ Hapus", default=False), "Status": st.column_config.TextColumn("Status (Bisa diedit)")}
     else: return {"Hapus": st.column_config.CheckboxColumn("🗑️ Hapus", default=False), "Status": st.column_config.SelectboxColumn("Status", options=opsi_status_iter)}
 
 # ==========================================
@@ -325,7 +331,10 @@ with tab1:
         with c3:
             tgl_r = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_teks")
             dokter_p = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_teks")
-            iter_p = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_teks")
+            if not is_prb:
+                iter_p = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_teks")
+            else:
+                iter_p = ""
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat")
@@ -388,7 +397,10 @@ with tab2:
         with c3:
             tgl_r2 = st.date_input("Tanggal Resep Asli", value=hasil["tgl_resep"], key="p_tgl_pdf")
             dokter_p2 = st.text_input("Nama Dokter", value=hasil["dokter"], key="p_dok_pdf")
-            iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_pdf")
+            if not is_prb:
+                iter_p2 = st.number_input("Jumlah Iter", min_value=0, value=hasil["iter"], key="p_iter_pdf")
+            else:
+                iter_p2 = ""
             
         st.markdown("---")
         st.subheader("💊 Rincian Obat (PDF)")
@@ -441,7 +453,7 @@ with tab3:
         with c3:
             m_tgl = st.date_input("Tanggal Resep Asli")
             m_dok = st.text_input("Nama Dokter")
-            m_iter = st.number_input("Jumlah Iter", min_value=0)
+            m_iter = st.number_input("Jumlah Iter", min_value=0) if not is_prb else ""
         m_obat = st.text_area("Daftar Obat (Tiap baris tekan Enter):", height=150)
         
         btn_manual = st.form_submit_button("💾 Simpan Data Resep (Manual)")
@@ -543,9 +555,12 @@ with tab4:
             tgl_r3 = st.date_input("Tanggal Resep Asli", value=tgl_lama, key="p_tgl_it")
             dokter_p3 = st.text_input("Nama Dokter", value=hasil_it["Nama Dokter"], key="p_dok_it")
             
-            try: iter_val = int(float(hasil_it["Jumlah Iter"]))
-            except: iter_val = 2
-            iter_p3 = st.number_input("Jumlah Iter", min_value=0, value=iter_val, key="p_iter_it")
+            if not is_prb:
+                try: iter_val = int(float(hasil_it["Jumlah Iter"]))
+                except: iter_val = 2
+                iter_p3 = st.number_input("Jumlah Iter", min_value=0, value=iter_val, key="p_iter_it")
+            else:
+                iter_p3 = ""
             
         st.subheader("💊 Rincian Obat")
         if not st.session_state['df_obat_iter'].empty:
@@ -599,7 +614,8 @@ with tab5:
             </tr>
             """
             
-        stamp_prb_html = '<div style="position: absolute; right: 0px; top: -10px; font-size: 16px; font-weight: 900; border: 2px solid #000; padding: 2px 8px; border-radius: 4px;">PRB</div>' if d.get('is_prb') else ''
+        baris_iter_html = f"<tr><td><strong>Nama Pasien</strong></td><td>: <strong style='font-size: 13px;'>{d['nama']}</strong></td><td><strong>Status Iter</strong></td><td>: <strong>Iter {d['iter']}x</strong></td></tr>" if not d.get('is_prb') else f"<tr><td><strong>Nama Pasien</strong></td><td>: <strong style='font-size: 13px;'>{d['nama']}</strong></td><td></td><td></td></tr>"
+        stamp_prb_html = '<div style="position: absolute; left: 0px; bottom: 0px; font-size: 32px; font-weight: 900; color: #000; border: 3px solid #000; padding: 4px 12px; border-radius: 6px; transform: rotate(-5deg); opacity: 0.8; letter-spacing: 2px;">PRB</div>' if d.get('is_prb') else ''
             
         html_a5 = f"""
         <!DOCTYPE html><html><head><style>
@@ -614,30 +630,31 @@ with tab5:
             .meta-table {{ width: 100%; font-size: 11px; margin-bottom: 15px; color: #000000; border-collapse: collapse; }}
             .meta-table td {{ padding: 3px 0; }}
             .obat-table {{ width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; color: #000000; }}
-            .footer-box {{ margin-top: 40px; float: right; text-align: center; width: 200px; color: #000000; }}
+            .footer-container {{ position: relative; margin-top: 40px; height: 100px; }}
+            .footer-box {{ float: right; text-align: center; width: 200px; color: #000000; }}
             .pcc {{ font-weight: bold; margin-bottom: 50px; }}
             .bottom-text {{ clear: both; text-align: center; font-style: italic; font-size: 10px; color: #333333; margin-top: 40px; border-top: 1px solid #000; padding-top: 5px; }}
         </style></head><body>
             <div class="kop"><h2>RUMAH SAKIT ISLAM MASYITHOH</h2><p>Jl. A.Yani No 6-7 Bangil 67153</p><p>Telefarmasi (WA) 0343-741018</p></div>
             <div class="line-thick"></div>
-            <div style="position: relative; text-align: center;">
-                <div class="title" style="margin-bottom: 5px;">SALINAN RESEP (COPY RESEP)</div>
-                {stamp_prb_html}
-            </div>
+            <div class="title">SALINAN RESEP (COPY RESEP)</div>
             <table class="meta-table">
                 <tr><td width="20%"><strong>Resep Dari</strong></td><td width="35%">: {d['dokter']}</td><td width="15%"><strong>No. RM</strong></td><td width="30%">: {d['rm']}</td></tr>
                 <tr><td><strong>Tgl Resep Asli</strong></td><td>: {d['tgl_resep']}</td><td><strong>No. Kartu</strong></td><td>: {d['kartu']}</td></tr>
-                <tr><td><strong>Nama Pasien</strong></td><td>: <strong style="font-size: 13px;">{d['nama']}</strong></td><td><strong>Status Iter</strong></td><td>: <strong>Iter {d['iter']}x</strong></td></tr>
+                {baris_iter_html}
             </table>
             <div class="line-thin"></div>
             <table class="obat-table">{html_rows_obat}</table>
-            <div class="footer-box"><div class="pcc">p.c.c</div><div>_________________________</div></div>
+            <div class="footer-container">
+                {stamp_prb_html}
+                <div class="footer-box"><div class="pcc">p.c.c</div><div>_________________________</div></div>
+            </div>
             <div class="bottom-text">Kesembuhan Dan Kesehatan Anda Adalah Do'a Yang Kami Panjatkan</div>
         </body></html>
         """
         
         c1, c2 = st.columns([8,2])
-        with c1: components.html(html_a5, height=300, scrolling=True)
+        with c1: components.html(html_a5, height=350, scrolling=True)
         with c2: 
             st.markdown("<br><br><br>", unsafe_allow_html=True)
             js_print_a5 = f"""<script>function printA5() {{ var win = window.open('', '', 'height=700,width=900'); win.document.write(`{html_a5}`); win.document.close(); win.print(); }}</script>
@@ -740,7 +757,9 @@ with tab6:
         if pencarian:
             try:
                 df_cari = df_data[df_data.apply(lambda row: row.astype(str).str.contains(pencarian, case=False).any(), axis=1)]
-                if not df_cari.empty: st.dataframe(df_cari, use_container_width=True)
+                if not df_cari.empty: 
+                    if is_prb and "Jumlah Iter" in df_cari.columns: df_cari = df_cari.drop(columns=["Jumlah Iter"])
+                    st.dataframe(df_cari, use_container_width=True)
                 else: st.warning("Data tidak ditemukan.")
             except: pass
             
@@ -761,6 +780,8 @@ with tab6:
         
         if not df_laporan.empty:
             df_laporan.insert(0, 'Hapus', False)
+            if is_prb and "Jumlah Iter" in df_laporan.columns:
+                df_laporan = df_laporan.drop(columns=["Jumlah Iter"])
             
             edited_df_laporan = st.data_editor(
                 df_laporan,
