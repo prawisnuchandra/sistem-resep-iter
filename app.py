@@ -306,7 +306,6 @@ with st.sidebar:
     st.metric(label=f"Resep {('PRB' if is_prb else 'Iter')} Hari Ini", value=f"{total_hari_ini} Resep", delta="Aktif")
     st.markdown(f'<div class="status-box status-{"success" if sheet_iter else "warning"}">{"✅" if sheet_iter else "⚠️"} {connection_status}</div>', unsafe_allow_html=True)
     
-    # --- FITUR GRAFIK TREN 7 HARI ---
     st.markdown("---")
     st.markdown(f"<p style='font-size: 14px; font-weight: 600; margin-bottom: 5px; color: #94A3B8;'>Tren 7 Hari Terakhir ({'PRB' if is_prb else 'Iter'})</p>", unsafe_allow_html=True)
     
@@ -889,7 +888,8 @@ with tab6:
                     del_bar.empty()
                     st.rerun()
 
-            csv = df_laporan.drop(columns=['Hapus']).to_csv(index=False).encode('utf-8')
-            st.download_button(label="📥 Unduh Laporan Rekap (CSV)", data=csv, file_name=f"Laporan_{'PRB' if is_prb else 'Iter'}_{start_date}.csv", mime="text/csv")
+            # FIX CSV TERBARU: Mengubah pemisah menjadi titik koma (sep=';') dan mengaktifkan BOM (utf-8-sig)
+            csv = df_laporan.drop(columns=['Hapus']).to_csv(index=False, sep=';').encode('utf-8-sig')
+            st.download_button(label="📥 Unduh Laporan Rekap (CSV Siap Excel)", data=csv, file_name=f"Laporan_{'PRB' if is_prb else 'Iter'}_{start_date}.csv", mime="text/csv")
     else:
         st.info("Database masih kosong. Belum ada resep yang diinput.")
