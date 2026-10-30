@@ -21,11 +21,14 @@ def get_waktu_sekarang():
 def format_tgl_indo(tgl_obj_or_str):
     if not tgl_obj_or_str: return ""
     try:
-        if isinstance(tgl_obj_or_str, str): tgl_obj = datetime.strptime(tgl_obj_or_str, "%Y-%m-%d")
-        else: tgl_obj = tgl_obj_or_str
+        if isinstance(tgl_obj_or_str, str):
+            tgl_obj = datetime.strptime(tgl_obj_or_str, "%Y-%m-%d")
+        else:
+            tgl_obj = tgl_obj_or_str
         bulan_indo = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
         return f"{tgl_obj.day} {bulan_indo[tgl_obj.month]} {tgl_obj.year}"
-    except: return str(tgl_obj_or_str)
+    except:
+        return str(tgl_obj_or_str)
 
 def get_kategori_resep(obat_str):
     s = str(obat_str).lower()
@@ -36,57 +39,28 @@ def get_kategori_resep(obat_str):
     return "Lainnya"
 
 # ==========================================
-# 1. KONFIGURASI UI/UX (TEMA ARTISAN VINTAGE)
+# 1. KONFIGURASI UI/UX (KEMBALI KE MODERN DARK)
 # ==========================================
-st.set_page_config(page_title="Sistem Farmasi 3D", page_icon="🌿", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Sistem Farmasi 3D", page_icon="🚀", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,800;1,600&family=Nunito:wght@400;600;700&display=swap');
-
-    :root {
-        --bg-cream: #F4EFE6;
-        --bg-teal-dark: #2B3D4A;
-        --accent-terracotta: #D95C41;
-        --accent-green: #6C8276;
-        --text-dark: #2A363B;
-        --text-light: #F4EFE6;
-    }
-
-    .stApp { background-color: var(--bg-cream) !important; color: var(--text-dark) !important; font-family: 'Nunito', sans-serif !important; }
-    p, div, span, label, li { font-family: 'Nunito', sans-serif !important; color: var(--text-dark); }
-    h1, h2, h3, h4, h5 { font-family: 'Playfair Display', serif !important; color: var(--accent-terracotta) !important; font-weight: 800 !important; }
-
-    [data-testid="stSidebar"] { background-color: var(--bg-teal-dark) !important; border-right: 2px solid #1E2D38; }
-    [data-testid="stSidebar"] p, [data-testid="stSidebar"] div, [data-testid="stSidebar"] span, [data-testid="stSidebar"] label { color: var(--text-light) !important; }
-    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3 { color: var(--accent-terracotta) !important; }
-
-    .stRadio > div[role="radiogroup"] { flex-direction: row; background-color: #1E2D38; padding: 5px; border-radius: 12px; gap: 5px; }
+    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    h1, h2, h3 { font-family: 'Inter', sans-serif; font-weight: 800; }
+    
+    .stRadio > div[role="radiogroup"] { flex-direction: row; background-color: #1E293B; padding: 5px; border-radius: 12px; gap: 5px; }
     .stRadio > div[role="radiogroup"] > label { flex: 1; text-align: center; background-color: transparent; border-radius: 8px; padding: 10px 0; cursor: pointer; transition: all 0.2s ease; }
-    .stRadio > div[role="radiogroup"] > label[data-checked="true"] { background-color: var(--accent-terracotta) !important; }
+    .stRadio > div[role="radiogroup"] > label:hover { background-color: rgba(255,255,255,0.1); }
+    .stRadio > div[role="radiogroup"] > label[data-checked="true"] { background: linear-gradient(135deg, #4F46E5, #3B82F6); box-shadow: 0 4px 6px rgba(0,0,0,0.2); }
     .stRadio > div[role="radiogroup"] > label > div:first-child { display: none; }
     .stRadio > div[role="radiogroup"] > label > div:last-child { font-weight: 800 !important; color: white !important; font-size: 16px; margin: 0; padding: 0; }
-
-    [data-testid="stMetricValue"] { color: var(--bg-cream) !important; font-family: 'Playfair Display', serif !important; }
-    [data-testid="stMetricLabel"] p { color: var(--accent-terracotta) !important; font-weight: bold !important; font-size: 14px;}
-
-    .stButton>button { background-color: var(--accent-terracotta) !important; color: white !important; border-radius: 8px; padding: 10px 20px; font-weight: 700; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px; }
-    .stButton>button:active, .stButton>button:hover { background-color: #BF4C33 !important; transform: translateY(-2px); box-shadow: 0 6px 12px rgba(0,0,0,0.15); }
     
-    .stTextInput input, .stDateInput input, .stNumberInput input, .stTextArea textarea, .stSelectbox select { background-color: white !important; border: 1px solid var(--accent-green) !important; border-radius: 8px !important; color: var(--text-dark) !important; font-weight: 600; }
-    .stTextInput input:focus, .stTextArea textarea:focus { border-color: var(--accent-terracotta) !important; box-shadow: 0 0 0 2px rgba(217, 92, 65, 0.2) !important; }
-
-    .stTabs [data-baseweb="tab-list"] { gap: 8px; background-color: transparent; }
-    .stTabs [data-baseweb="tab"] { background-color: var(--bg-teal-dark) !important; color: var(--bg-cream) !important; border-radius: 8px 8px 0 0; padding: 10px 20px; border: none; font-weight: 700; }
-    .stTabs [aria-selected="true"] { background-color: var(--accent-terracotta) !important; color: white !important; border-bottom: none !important; }
-
-    .status-box { padding: 15px; border-radius: 12px; margin-bottom: 20px; font-weight: 700; text-align: center; border: 1px solid rgba(255,255,255,0.2); }
-    .status-success { background-color: rgba(108, 130, 118, 0.3); border-left: 5px solid var(--accent-green); color: var(--bg-cream);}
-    .status-warning { background-color: rgba(217, 92, 65, 0.2); border-left: 5px solid var(--accent-terracotta); color: var(--bg-cream);}
+    .stButton>button { background: linear-gradient(135deg, #4F46E5, #3B82F6); color: white !important; border-radius: 12px; padding: 12px 24px; font-weight: 800; border: none; box-shadow: 0 6px 0 #312E81, 0 15px 20px rgba(0,0,0,0.2); transition: all 0.1s; text-transform: uppercase; letter-spacing: 1px; }
+    .stButton>button:active, .stButton>button:focus { transform: translateY(6px); box-shadow: 0 0 0 #312E81, 0 5px 5px rgba(0,0,0,0.2); outline: none; }
     
-    /* STYLING UNTUK CHECKBOX SIMPAN */
-    [data-testid="stCheckbox"] label { color: var(--text-dark) !important; font-weight: 700 !important; }
-    [data-testid="stCheckbox"] span { background-color: var(--accent-green); }
+    .status-box { padding: 15px; border-radius: 15px; margin-bottom: 20px; font-weight: 800; text-align: center; background: rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.2); box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+    .status-success { border-left: 5px solid #10B981; }
+    .status-warning { border-left: 5px solid #F59E0B; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -311,12 +285,13 @@ def ekstrak_data_pdf(file_pdf, is_prb):
     return parse_teks_resep(teks_mentah, is_prb)
 
 # ==========================================
-# 4. SIDEBAR SELECTION & JAM VINTAGE
+# 4. SIDEBAR SELECTION & JAM 3D LIVE
 # ==========================================
 with st.sidebar:
-    st.markdown("<h2 style='text-align: center; color: #D95C41 !important; margin-bottom:0;'>Apotek</h2><p style='text-align: center; color: #6C8276; font-style:italic;'>Masyithoh</p>", unsafe_allow_html=True)
+    st.image("https://cdn-icons-png.flaticon.com/512/2966/2966327.png", width=80)
+    st.title("Pusat Kendali")
     
-    st.markdown("<p style='font-size: 14px; font-weight: 700; margin-bottom: 5px; color: #F4EFE6;'>Modul Aplikasi:</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size: 14px; font-weight: 600; margin-bottom: 5px; color: #94A3B8;'>Pilih Modul Aplikasi:</p>", unsafe_allow_html=True)
     modul = st.radio("", ["🔄 ITER", "🏥 PRB"], label_visibility="collapsed")
     is_prb = (modul == "🏥 PRB")
     
@@ -326,20 +301,20 @@ with st.sidebar:
         st.session_state['last_modul'] = modul
         
     components.html("""
-    <div style="font-family: 'Playfair Display', serif; text-align: center; padding: 15px; background: rgba(244, 239, 230, 0.1); border: 1px solid rgba(244, 239, 230, 0.2); border-radius: 12px; margin-bottom: 20px; margin-top: 15px; color: #F4EFE6;">
-        <div id="date" style="font-size: 12px; font-weight: bold; letter-spacing: 1px; text-transform: uppercase;"></div>
-        <div id="time" style="font-size: 26px; font-weight: 900; letter-spacing: 2px;"></div>
+    <div style="font-family: 'Arial', sans-serif; text-align: center; padding: 15px; background: linear-gradient(145deg, #ffffff, #e6e6e6); box-shadow: 5px 5px 10px rgba(0,0,0,0.1); border-radius: 15px; margin-bottom: 20px; margin-top: 15px;">
+        <div id="date" style="font-size: 13px; font-weight: bold; color: #64748B; text-transform: uppercase;"></div>
+        <div id="time" style="font-size: 26px; font-weight: 900; color: #2563EB; letter-spacing: 2px;"></div>
     </div>
     <script>
         function updateTime() {
             var now = new Date();
-            var options = { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' };
+            var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
             document.getElementById('date').innerText = now.toLocaleDateString('id-ID', options);
             document.getElementById('time').innerText = now.toLocaleTimeString('id-ID');
         }
         setInterval(updateTime, 1000); updateTime();
     </script>
-    """, height=110)
+    """, height=130)
     
     df_data = ambil_semua_data(is_prb)
     col_tgl_input = cari_kolom(df_data.columns, ["input"], ["asli"]) if not df_data.empty else None
@@ -348,11 +323,11 @@ with st.sidebar:
     today_str = get_waktu_sekarang().strftime("%Y-%m-%d")
     total_hari_ini = len(df_data[df_data[col_tgl_input].astype(str).str.startswith(today_str)]) if not df_data.empty and col_tgl_input else 0
     
-    st.metric(label=f"Resep {('PRB' if is_prb else 'Iter')} Hari Ini", value=f"{total_hari_ini} Pasien", delta="Sistem Aktif")
+    st.metric(label=f"Resep {('PRB' if is_prb else 'Iter')} Hari Ini", value=f"{total_hari_ini} Resep", delta="Aktif")
     st.markdown(f'<div class="status-box status-{"success" if sheet_iter else "warning"}">{"✅" if sheet_iter else "⚠️"} {connection_status}</div>', unsafe_allow_html=True)
     
     st.markdown("---")
-    st.markdown(f"<p style='font-size: 14px; font-weight: 700; margin-bottom: 5px; color: #F4EFE6;'>Tren 7 Hari ({('PRB' if is_prb else 'Iter')})</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='font-size: 14px; font-weight: 600; margin-bottom: 5px; color: #94A3B8;'>Tren 7 Hari Terakhir ({'PRB' if is_prb else 'Iter'})</p>", unsafe_allow_html=True)
     
     if not df_data.empty and col_tgl_input:
         df_chart = df_data.copy()
@@ -376,7 +351,7 @@ with st.sidebar:
             df_final['Jumlah Pasien'] = 0
             
         df_final = df_final.set_index('Tanggal')
-        st.bar_chart(df_final, color="#D95C41", height=150)
+        st.bar_chart(df_final, color="#3B82F6", height=150)
     else:
         st.info("Belum ada data.")
 
@@ -388,24 +363,23 @@ def get_col_config():
 # ==========================================
 # 5. HALAMAN UTAMA (TABS)
 # ==========================================
-st.title(f"Sistem Farmasi {'PRB' if is_prb else 'Iter'}")
-st.markdown("<p style='font-style:italic; color: #6C8276; margin-top:-15px; margin-bottom:20px;'>Platform penyalinan resep digital terpadu</p>", unsafe_allow_html=True)
+st.title(f"✨ Sistem Cerdas Copy Resep {'PRB' if is_prb else 'Iter'}")
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 Paste Teks", "📂 Upload PDF", "✍️ Manual", "🔄 Tarik Data", "🖨️ Pusat Cetak", "🔍 Laporan Data"])
 
 # --- TAB 1: PASTE TEKS ---
 with tab1:
     if st.session_state.get('show_success_tab1'):
-        st.success("✅ Sukses Diproses! Silakan buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Diproses! Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab1'] = False
 
     with st.form("form_paste_teks"):
-        teks_input_user = st.text_area("Teks Halaman Resep:", height=150, placeholder="Tekan Ctrl+V di sini...")
-        btn_proses = st.form_submit_button("Proses Data")
+        teks_input_user = st.text_area("📋 Paste Teks Halaman Resep di Sini:", height=150, placeholder="Tekan Ctrl+V di sini...")
+        btn_proses = st.form_submit_button("🚀 Proses Data Resep")
     
     if btn_proses:
         if teks_input_user.strip():
-            my_bar = st.progress(0, text="Memindai...")
+            my_bar = st.progress(0, text="Memulai pemindaian... 0%")
             for percent_complete in range(100):
                 time.sleep(0.01) 
                 my_bar.progress(percent_complete + 1, text=f"Memproses data... {percent_complete}%")
@@ -415,6 +389,7 @@ with tab1:
             st.session_state['hasil_ekstrak_teks'] = hasil_ekstrak
             st.session_state['df_obat_teks'] = pd.DataFrame(hasil_ekstrak["list_obat"])
             
+            # FIX CACHE
             st.session_state['p_nama_teks'] = hasil_ekstrak["nama"]
             st.session_state['p_rm_teks'] = hasil_ekstrak["rm"]
             st.session_state['p_kartu_teks'] = hasil_ekstrak["no_kartu"]
@@ -428,7 +403,7 @@ with tab1:
     if 'hasil_ekstrak_teks' in st.session_state and 'df_obat_teks' in st.session_state:
         hasil = st.session_state['hasil_ekstrak_teks']
 
-        st.markdown("<br><h4>Identitas Pasien</h4>", unsafe_allow_html=True)
+        st.subheader("👤 Identitas Pasien")
         c1, c2, c3 = st.columns(3)
         with c1:
             nama_p = st.text_input("Nama Pasien", key="p_nama_teks")
@@ -441,7 +416,8 @@ with tab1:
             dokter_p = st.text_input("Nama Dokter", key="p_dok_teks")
             if not is_prb: iter_p = st.number_input("Jumlah Iter", min_value=0, key="p_iter_teks")
             
-        st.markdown("<hr style='border:1px solid #D95C41; opacity:0.3;'><br><h4>Rincian Obat</h4>", unsafe_allow_html=True)
+        st.markdown("---")
+        st.subheader("💊 Rincian Obat")
         
         if not st.session_state['df_obat_teks'].empty:
             edited_df_obat = st.data_editor(
@@ -450,17 +426,15 @@ with tab1:
                 disabled=["Nama Obat"], hide_index=True, use_container_width=True, key="editor_obat_teks" 
             )
             
-            if st.button("Hapus Terpilih", key="del_tab1"):
+            if st.button("🗑️ Hapus Obat Terpilih", key="del_tab1"):
                 st.session_state['df_obat_teks'] = edited_df_obat[edited_df_obat['Hapus'] == False].copy()
                 st.session_state['df_obat_teks']['Hapus'] = False 
                 st.rerun()
                 
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            # --- FITUR BARU: PILIHAN SIMPAN ATAU HANYA CETAK ---
+            st.markdown("---")
             simpan_db_1 = st.checkbox("💾 Simpan ke Database Laporan (Hilangkan centang jika hanya numpang cetak)", value=True, key="chk_simpan_1")
-            
-            if st.button("Simpan & Siapkan Cetak" if simpan_db_1 else "Siapkan Cetak (Tanpa Simpan)", key="btn_save_teks", type="primary"):
+
+            if st.button("💾 Simpan Data & Siapkan Cetak" if simpan_db_1 else "🖨️ Siapkan Cetak (Tanpa Simpan)", key="btn_save_teks"):
                 save_bar = st.progress(0, text="Menyiapkan data...")
                 time.sleep(0.3)
                 
@@ -485,7 +459,7 @@ with tab1:
 # --- TAB 2: UPLOAD PDF ---
 with tab2:
     if st.session_state.get('show_success_tab2'):
-        st.success("✅ Sukses Diproses dari PDF! Silakan buka Tab '🖨️ Pusat Cetak'.")
+        st.success("✅ Sukses Diproses dari PDF! Buka Tab '🖨️ Pusat Cetak'.")
         st.session_state['show_success_tab2'] = False
 
     file_upload = st.file_uploader("📂 Unggah File PDF Resep", type=['pdf'], key="uploader_pdf")
@@ -507,7 +481,7 @@ with tab2:
         
         hasil = st.session_state['hasil_ekstrak_pdf']
         
-        st.markdown("<br><h4>Identitas Pasien (PDF)</h4>", unsafe_allow_html=True)
+        st.subheader("👤 Identitas Pasien (PDF)")
         c1, c2, c3 = st.columns(3)
         with c1:
             nama_p2 = st.text_input("Nama Pasien", key="p_nama_pdf")
@@ -520,7 +494,8 @@ with tab2:
             dokter_p2 = st.text_input("Nama Dokter", key="p_dok_pdf")
             if not is_prb: iter_p2 = st.number_input("Jumlah Iter", min_value=0, key="p_iter_pdf")
             
-        st.markdown("<hr style='border:1px solid #D95C41; opacity:0.3;'><br><h4>Rincian Obat (PDF)</h4>", unsafe_allow_html=True)
+        st.markdown("---")
+        st.subheader("💊 Rincian Obat (PDF)")
         
         if not st.session_state['df_obat_pdf'].empty:
             edited_df_obat2 = st.data_editor(
@@ -529,16 +504,15 @@ with tab2:
                 disabled=["Nama Obat"], hide_index=True, use_container_width=True, key="editor_obat_pdf"
             )
             
-            if st.button("Hapus Terpilih", key="del_tab2"):
+            if st.button("🗑️ Hapus Obat Terpilih (PDF)", key="del_tab2"):
                 st.session_state['df_obat_pdf'] = edited_df_obat2[edited_df_obat2['Hapus'] == False].copy()
                 st.session_state['df_obat_pdf']['Hapus'] = False
                 st.rerun()
                 
-            st.markdown("<br>", unsafe_allow_html=True)
-            
+            st.markdown("---")
             simpan_db_2 = st.checkbox("💾 Simpan ke Database Laporan (Hilangkan centang jika hanya numpang cetak)", value=True, key="chk_simpan_2")
 
-            if st.button("Simpan & Siapkan Cetak" if simpan_db_2 else "Siapkan Cetak (Tanpa Simpan)", key="btn_save_pdf", type="primary"):
+            if st.button("💾 Simpan Data PDF & Siapkan Cetak" if simpan_db_2 else "🖨️ Siapkan Cetak (Tanpa Simpan)", key="btn_save_pdf"):
                 save_bar2 = st.progress(0, text="Menyiapkan data PDF...")
                 time.sleep(0.3)
                 
@@ -567,7 +541,6 @@ with tab3:
         st.session_state['show_success_tab3'] = False
         
     with st.form("form_manual", clear_on_submit=False):
-        st.markdown("<h4>Input Manual</h4>", unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         with c1:
             m_nama = st.text_input("Nama Pasien")
@@ -581,8 +554,8 @@ with tab3:
             if not is_prb: m_iter = st.number_input("Jumlah Iter", min_value=0)
         m_obat = st.text_area("Daftar Obat (Tiap baris tekan Enter):", height=150)
         
-        simpan_db_3 = st.checkbox("💾 Simpan ke Database (Hilangkan centang jika hanya numpang cetak)", value=True)
-        btn_manual = st.form_submit_button("Proses Data Manual")
+        simpan_db_3 = st.checkbox("💾 Simpan ke Database Laporan (Hilangkan centang jika hanya numpang cetak)", value=True)
+        btn_manual = st.form_submit_button("💾 Proses Data (Manual)")
         
         if btn_manual:
             save_bar3 = st.progress(0, text="Memproses...")
@@ -594,7 +567,6 @@ with tab3:
                 if simpan_db_3:
                     simpan_data(data_dict, is_prb)
                     
-                # Parsing untuk print manual (Jika mau dicetak)
                 obat_siap_cetak_m = []
                 for b in m_obat.split('\n'):
                     if b.strip(): obat_siap_cetak_m.append({"nama": b.strip(), "signa": "", "jumlah": "", "status": ("det 30" if is_prb else "🟢 det orig")})
@@ -609,12 +581,12 @@ with tab3:
 
 # --- TAB 4: TARIK DATA (ITER / PRB) ---
 with tab4:
-    st.info(f"Sistem akan menarik riwayat dari Database {'PRB' if is_prb else 'Iter'}.")
+    st.info(f"💡 **Gunakan fitur ini untuk resep {'PRB' if is_prb else 'Iterasi (Refill)'}.** Sistem akan menarik data dari Database {'PRB' if is_prb else 'Iter'}.")
     
     if df_data.empty: 
         st.warning("Database masih kosong.")
     else:
-        rm_cari = st.text_input("🔍 Masukkan No. RM / Nama:", key="cari_rm_iter")
+        rm_cari = st.text_input("🔍 Masukkan No. RM / Nama Pasien untuk mencari riwayat resep:", key="cari_rm_iter")
         
         col_rm_db = cari_kolom(df_data.columns, ["rm", "rekam"]) or df_data.columns[2]
         col_tgl_db = cari_kolom(df_data.columns, ["asli", "resep"], ["input"]) or df_data.columns[3]
@@ -638,13 +610,14 @@ with tab4:
                     dok_text = str(r.get(col_dok_db, "Unknown Dokter"))
                     opsi.append(f"{tgl_text} - {nama_text} (Dokter: {dok_text})")
                     
-                pilihan_riwayat = st.selectbox("📂 Pilih Riwayat Resep:", opsi)
+                pilihan_riwayat = st.selectbox("📂 Pilih Riwayat Resep Sebelumnya:", opsi)
                 idx_terpilih = opsi.index(pilihan_riwayat)
                 row_terpilih = df_match.iloc[idx_terpilih]
                 
-                if st.button("Tarik & Proses Data Ini", type="primary"):
-                    bar_tarik = st.progress(0, text="Mengambil riwayat...")
+                if st.button("🔽 Tarik & Proses Data Ini"):
+                    bar_tarik = st.progress(0, text="Mengambil data riwayat pasien...")
                     time.sleep(0.2)
+                    bar_tarik.progress(40, text="Memetakan susunan kolom ke formulir...")
                     
                     st.session_state['hasil_ekstrak_iter'] = {
                         "Nama Pasien": str(row_terpilih.get(col_nama_db, "")),
@@ -657,13 +630,16 @@ with tab4:
                     }
                     if not is_prb: st.session_state['hasil_ekstrak_iter']["Jumlah Iter"] = str(row_terpilih.get(col_iter_db, 2))
                     
+                    bar_tarik.progress(70, text="Mengekstrak rincian & status obat...")
                     db_obat_str = st.session_state['hasil_ekstrak_iter']['Daftar Obat']
                     st.session_state['df_obat_iter'] = pd.DataFrame(parse_db_obat(db_obat_str, is_prb))
                     
                     time.sleep(0.3)
+                    bar_tarik.progress(100, text="Selesai!")
+                    time.sleep(0.3)
                     bar_tarik.empty()
             else:
-                st.error("Data tidak ditemukan.")
+                st.error("Data pasien tidak ditemukan.")
                 
     if 'hasil_ekstrak_iter' in st.session_state and 'df_obat_iter' in st.session_state:
         if st.session_state.get('show_success_tab4'):
@@ -672,7 +648,8 @@ with tab4:
             
         hasil_it = st.session_state['hasil_ekstrak_iter']
         
-        st.markdown("<br><h4>Identitas Pasien (Tarik Data)</h4>", unsafe_allow_html=True)
+        st.markdown("---")
+        st.subheader(f"👤 Identitas Pasien ({'PRB' if is_prb else 'Iterasi'})")
         c1, c2, c3 = st.columns(3)
         with c1:
             nama_p3 = st.text_input("Nama Pasien", value=hasil_it.get("Nama Pasien", ""), key="p_nama_it")
@@ -685,16 +662,18 @@ with tab4:
                 tgl_str = str(hasil_it.get("Tanggal Resep Asli", ""))
                 if tgl_str == "": tgl_lama = get_waktu_sekarang().date()
                 else: tgl_lama = datetime.strptime(tgl_str, "%Y-%m-%d").date()
-            except: tgl_lama = get_waktu_sekarang().date()
+            except:
+                tgl_lama = get_waktu_sekarang().date()
                 
             tgl_r3 = st.date_input("Tanggal Resep Asli", value=tgl_lama, key="p_tgl_it")
             dokter_p3 = st.text_input("Nama Dokter", value=hasil_it.get("Nama Dokter", ""), key="p_dok_it")
+            
             if not is_prb:
                 try: iter_val = int(float(hasil_it.get("Jumlah Iter", 2)))
                 except: iter_val = 2
                 iter_p3 = st.number_input("Jumlah Iter", min_value=0, value=iter_val, key="p_iter_it")
             
-        st.markdown("<hr style='border:1px solid #D95C41; opacity:0.3;'><br><h4>Rincian Obat</h4>", unsafe_allow_html=True)
+        st.subheader("💊 Rincian Obat")
         if not st.session_state['df_obat_iter'].empty:
             edited_df_obat3 = st.data_editor(
                 st.session_state['df_obat_iter'],
@@ -702,15 +681,15 @@ with tab4:
                 disabled=["Nama Obat"], hide_index=True, use_container_width=True, key="editor_obat_iter"
             )
             
-            if st.button("Hapus Terpilih", key="del_tab4"):
+            if st.button("🗑️ Hapus Obat Terpilih", key="del_tab4"):
                 st.session_state['df_obat_iter'] = edited_df_obat3[edited_df_obat3['Hapus'] == False].copy()
                 st.session_state['df_obat_iter']['Hapus'] = False
                 st.rerun()
                 
-            st.markdown("<br>", unsafe_allow_html=True)
-            simpan_db_4 = st.checkbox("💾 Simpan Kunjungan ke Laporan", value=True, key="chk_simpan_4")
+            st.markdown("---")
+            simpan_db_4 = st.checkbox("💾 Simpan Kunjungan ke Database Laporan", value=True, key="chk_simpan_4")
             
-            if st.button("Simpan & Siapkan Cetak" if simpan_db_4 else "Siapkan Cetak (Tanpa Simpan)", key="btn_save_iter", type="primary"):
+            if st.button(f"💾 Simpan Data {'PRB' if is_prb else 'Iter'} & Siapkan Cetak" if simpan_db_4 else "🖨️ Siapkan Cetak (Tanpa Simpan)", key="btn_save_iter"):
                 save_bar4 = st.progress(0, text="Menyiapkan data...")
                 time.sleep(0.3)
                 
@@ -738,7 +717,7 @@ with tab5:
     if 'data_cetak' in st.session_state:
         d = st.session_state['data_cetak']
         
-        st.markdown("<h4>1. Cetak Copy Resep (A5)</h4>", unsafe_allow_html=True)
+        st.subheader("📑 1. Cetak Copy Resep (A5)")
         html_rows_obat = ""
         for o in d['obat_list']:
             status_bersih = o['status'].split(" ", 1)[-1] if (" " in o['status'] and not d.get('is_prb')) else o['status']
@@ -796,10 +775,12 @@ with tab5:
         with c2: 
             st.markdown("<br><br><br>", unsafe_allow_html=True)
             js_print_a5 = f"""<script>function printA5() {{ var win = window.open('', '', 'height=700,width=900'); win.document.write(`{html_a5}`); win.document.close(); win.print(); }}</script>
-            <button onclick="printA5()" style="background: #D95C41; color: white; border: none; padding: 15px; font-weight: 800; border-radius: 8px; cursor: pointer; width: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.2s;" onmouseover="this.style.background='#BF4C33';" onmouseout="this.style.background='#D95C41';">🖨️ PRINT COPY RESEP</button>"""
+            <button onclick="printA5()" style="background: linear-gradient(135deg, #10B981, #059669); color: white; border: none; padding: 15px; font-weight: 800; border-radius: 12px; cursor: pointer; width: 100%; box-shadow: 0 6px 0 #047857, 0 10px 20px rgba(16,185,129,0.3); transition: all 0.1s;" onmousedown="this.style.transform='translateY(6px)'; this.style.boxShadow='0 0 0 #047857, 0 5px 5px rgba(16,185,129,0.3)';" onmouseup="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 0 #047857, 0 10px 20px rgba(16,185,129,0.3)';">🖨️ PRINT COPY RESEP</button>"""
             components.html(js_print_a5, height=100)
 
-        st.markdown("<hr style='border:1px solid #D95C41; opacity:0.3;'><br><h4>2. Cetak Etiket Thermal</h4>", unsafe_allow_html=True)
+        st.markdown("---")
+        
+        st.subheader("🏷️ 2. Cetak Etiket (Kustomisasi Sebelum Print)")
         
         if 'df_etiket_edit' not in st.session_state or st.session_state.get('last_etiket_pasien') != d['nama'] + d['tgl_copy']:
             df_kustom = pd.DataFrame(d['obat_list'])
@@ -878,7 +859,7 @@ with tab5:
         with c4:
             st.markdown("<br><br><br>", unsafe_allow_html=True)
             js_print_thermal = f"""<script>function printThermal() {{ var win = window.open('', '', 'height=400,width=400'); win.document.write(`{html_thermal}`); win.document.close(); win.print(); }}</script>
-            <button onclick="printThermal()" style="background: #2B3D4A; color: #F4EFE6; border: none; padding: 15px; font-weight: 800; border-radius: 8px; cursor: pointer; width: 100%; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.2s;" onmouseover="this.style.background='#1E2D38';" onmouseout="this.style.background='#2B3D4A';">🖨️ PRINT THERMAL</button>"""
+            <button onclick="printThermal()" style="background: linear-gradient(135deg, #F59E0B, #D97706); color: white; border: none; padding: 15px; font-weight: 800; border-radius: 12px; cursor: pointer; width: 100%; box-shadow: 0 6px 0 #B45309, 0 10px 20px rgba(245,158,11,0.3); transition: all 0.1s;" onmousedown="this.style.transform='translateY(6px)'; this.style.boxShadow='0 0 0 #B45309, 0 5px 5px rgba(245,158,11,0.3)';" onmouseup="this.style.transform='translateY(0)'; this.style.boxShadow='0 6px 0 #B45309, 0 10px 20px rgba(245,158,11,0.3)';">🖨️ PRINT ETIKET THERMAL</button>"""
             components.html(js_print_thermal, height=100)
 
     else:
@@ -891,7 +872,11 @@ with tab6:
         st.session_state['show_print_success'] = False
 
     if not df_data.empty:
-        st.markdown("<h4>Laporan & Rekap Database</h4>", unsafe_allow_html=True)
+        st.subheader("🔍 Cari Riwayat Pasien")
+        pencarian = st.text_input("Masukkan Nama Pasien atau No. RM (khusus di rentang tanggal di bawah):")
+        
+        st.markdown("---")
+        st.subheader(f"📊 Laporan Bulanan & Rekap (Database {'PRB' if is_prb else 'Iter'})")
         
         col_tgl_input = cari_kolom(df_data.columns, ["input"], ["asli"]) or df_data.columns[0]
         df_data[col_tgl_input] = pd.to_datetime(df_data[col_tgl_input], errors='coerce')
@@ -904,7 +889,7 @@ with tab6:
         df_laporan = df_data.loc[mask].copy()
         
         if not df_laporan.empty:
-            # --- PENAMBAHAN FITUR REKAP CERDAS (KATEGORI & DOKTER) ---
+            # --- PENAMBAHAN FITUR REKAP CERDAS ---
             col_obat_db = cari_kolom(df_laporan.columns, ["obat", "daftar", "rincian"]) or (df_laporan.columns[7] if is_prb else df_laporan.columns[8])
             col_dok_db = cari_kolom(df_laporan.columns, ["dokter"]) or "Nama Dokter"
             
@@ -914,13 +899,12 @@ with tab6:
             # Pivot Rekap Harian
             df_rekap = df_laporan.groupby(['Tanggal', col_dok_db, 'Kategori Kunjungan']).size().reset_index(name='Jumlah Pasien')
             
-            st.markdown("<h5 style='color: #6C8276 !important;'>📊 Ringkasan Jumlah Resep (det orig vs det iter)</h5>", unsafe_allow_html=True)
+            st.markdown("**Ringkasan Jumlah Resep Harian (det orig vs det iter):**")
             st.dataframe(df_rekap, use_container_width=True, hide_index=True)
             
-            st.markdown("<hr style='border:1px solid #D95C41; opacity:0.3;'>", unsafe_allow_html=True)
-            st.markdown("<h5 style='color: #6C8276 !important;'>📋 Data Pasien Lengkap</h5>", unsafe_allow_html=True)
+            st.markdown("---")
+            st.markdown(f"Total data ditemukan: **{len(df_laporan)} resep**")
             
-            pencarian = st.text_input("🔍 Cari Pasien / RM (khusus di rentang tanggal ini):")
             if pencarian:
                 df_laporan = df_laporan[df_laporan.apply(lambda row: row.astype(str).str.contains(pencarian, case=False).any(), axis=1)]
             
@@ -928,7 +912,7 @@ with tab6:
             df_laporan = df_laporan.loc[:, ~df_laporan.columns.duplicated()]
             
             edited_df_laporan = st.data_editor(
-                df_laporan.drop(columns=['Tanggal']), # Menyembunyikan kolom tanggal mentah saat diedit
+                df_laporan.drop(columns=['Tanggal']), 
                 column_config={"Pilih": st.column_config.CheckboxColumn("Pilih (Hapus/Print)", default=False)},
                 disabled=df_laporan.columns.drop('Pilih').tolist(),
                 hide_index=True,
@@ -941,8 +925,8 @@ with tab6:
             if not baris_terpilih.empty:
                 c_act1, c_act2 = st.columns(2)
                 with c_act1:
-                    if st.button("🗑️ Hapus Terpilih"):
-                        del_bar = st.progress(0, text="Menghapus...")
+                    if st.button("🗑️ Hapus Data Terpilih", type="primary", use_container_width=True):
+                        del_bar = st.progress(0, text="Menghapus data dari server...")
                         time.sleep(0.3)
                         
                         col_rm_db = cari_kolom(df_data.columns, ["rm", "rekam"]) or df_data.columns[2]
@@ -973,13 +957,13 @@ with tab6:
                                 if not any((str(r[0]) == str(row_del.get(col_tgl_input, '')) and str(r[2]) == str(row_del.get(col_rm_db, ''))) for _, row_del in baris_terpilih.iterrows())
                             ]
                         
-                        del_bar.progress(100, text="Selesai!")
+                        del_bar.progress(100, text="Selesai menghapus!")
                         time.sleep(0.5)
                         del_bar.empty()
                         st.rerun()
 
                 with c_act2:
-                    if st.button("🖨️ Print Ulang", type="primary"):
+                    if st.button("🖨️ Siapkan Print Ulang", type="secondary", use_container_width=True):
                         if len(baris_terpilih) == 1:
                             row_print = baris_terpilih.iloc[0]
                             
@@ -1012,21 +996,19 @@ with tab6:
                             st.session_state['show_print_success'] = True
                             st.rerun()
                         else:
-                            st.warning("Pilih HANYA 1 baris pasien.")
+                            st.warning("Pilih HANYA 1 baris pasien untuk dicetak ulang.")
 
-            # --- UNDUHAN EXCEL (Dipisahkan Rekap vs Lengkap) ---
-            st.markdown("<br>", unsafe_allow_html=True)
-            
+            st.markdown("---")
             df_download_lengkap = df_laporan.sort_values(by=['Tanggal', col_dok_db, 'Kategori Kunjungan']).drop(columns=['Pilih', 'Tanggal'])
             csv_lengkap = df_download_lengkap.to_csv(index=False, sep=';').encode('utf-8-sig')
             csv_rekap = df_rekap.to_csv(index=False, sep=';').encode('utf-8-sig')
             
             c_dl1, c_dl2 = st.columns(2)
             with c_dl1:
-                st.download_button(label="📥 Download Data Lengkap (Excel)", data=csv_lengkap, file_name=f"Data_Lengkap_{'PRB' if is_prb else 'Iter'}_{start_date}.csv", mime="text/csv")
+                st.download_button(label="📥 Unduh Data Lengkap (CSV Excel)", data=csv_lengkap, file_name=f"Data_Lengkap_{'PRB' if is_prb else 'Iter'}_{start_date}.csv", mime="text/csv", use_container_width=True)
             with c_dl2:
-                st.download_button(label="📊 Download Tabel Rekap (Excel)", data=csv_rekap, file_name=f"Rekap_Harian_{'PRB' if is_prb else 'Iter'}_{start_date}.csv", mime="text/csv")
+                st.download_button(label="📊 Unduh Tabel Rekap Harian (CSV Excel)", data=csv_rekap, file_name=f"Rekap_Harian_{'PRB' if is_prb else 'Iter'}_{start_date}.csv", mime="text/csv", use_container_width=True)
         else:
-            st.write("Tidak ada data pada rentang tanggal tersebut.")
+            st.write("Tidak ada data resep pada rentang tanggal tersebut.")
     else:
-        st.info("Database kosong.")
+        st.info("Database masih kosong. Belum ada resep yang diinput.")
